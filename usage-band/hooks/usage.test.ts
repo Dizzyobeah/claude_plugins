@@ -5,6 +5,7 @@ describe('usage-band', () => {
     on('ui.open', () => ({ value: { isPlaced: true } }))
     on('store.get', () => ({ value: undefined }))
     on('clock.now', () => ({ value: Date.now() }))
+    on('session.model', () => ({ value: 'claude-opus-5-5' }))
     const r = await $.command.run({
       command: 'usage',
       args: 'pane',
@@ -38,6 +39,7 @@ describe('usage-band', () => {
       props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { bodyRows: 10, offset: 0, contentRows: 2 }, view: {} },
     })
     expect(await ui.find({ type: 'Text', text: /Router band/ })).toBeTruthy()
+    expect((await ui.find({ type: 'Text', text: /Usage/ }))?.props?.backgroundColor).toBe('#303030')
     expect(await ui.find({ type: 'Text', text: /Session/ })).toBeTruthy()
     await ui.unmount()
   })
