@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, TurnUsage } from 'claude-code'
+import type { EngineInterface as Engine, Register, TurnUsage } from 'claude-code'
 
 import type { Effort, Mode, Tier } from '../types'
 
@@ -80,6 +80,25 @@ const money = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`
 
 const tokens = (n: number) => (n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`)
 
+// $.state starts over on /clear, /resume and /branch, so the /route choices live in $.store and load from both
+// session.start and classic.SessionStart. A Fable or Mythos lock loads as auto: it needs its two yeses again.
+const load = async ($: Engine) => {
+  const m = (await $.store.get('mode')) as Mode | undefined
+  const o = (await $.store.get('effortOverride')) as Effort | null | undefined
+  await update($, mode, () => (m === undefined || GATED.some(g => g === m) ? 'auto' : m))
+  await update($, effortOverride, () => o ?? null)
+}
+
+const setMode = async ($: Engine, m: Mode) => {
+  await update($, mode, () => m)
+  await $.store.set('mode', m)
+}
+
+const setEffort = async ($: Engine, o: Effort | null) => {
+  await update($, effortOverride, () => o)
+  await $.store.set('effortOverride', o)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -87,9 +106,15 @@ export const register: Register = on => {
       description: 'Turn model routing on or off, force Haiku, Sonnet, Opus, Fable or Mythos, or set effort',
       argumentHint: 'on|off|auto|haiku|sonnet|opus|fable|mythos|effort <level>',
     })
+    await load($)
 
     return next(e)
   })
+
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    await load($)
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a failed load never holds up the session
 
   on('command.run', { command: 'route' }, async ($, e) => {
     const yes = (question: string) =>
@@ -101,7 +126,7 @@ export const register: Register = on => {
     if (arg === 'effort' || arg.startsWith('effort ')) {
       const level = arg.slice('effort'.length).trim()
       if (level === '' || level === 'default') {
-        await update($, effortOverride, () => null)
+        await setEffort($, null)
         return { text: 'Effort back to each tier\'s default.' }
       }
       if (!isEffort(level)) return { text: USAGE }
@@ -111,7 +136,7 @@ export const register: Register = on => {
           return { text: `Effort unchanged (${level} not approved).` }
         }
       }
-      await update($, effortOverride, () => level)
+      await setEffort($, level)
       return { text: `Effort set to ${level} for routed turns.` }
     }
 
@@ -130,7 +155,7 @@ export const register: Register = on => {
       }
     }
 
-    await update($, mode, () => next)
+    await setMode($, next)
 
     return { text: describe(next) }
   })
@@ -147,8 +172,9 @@ export const register: Register = on => {
       if (isTier(label)) tier = label
     } catch {
       // ponytail: classifier down → Sonnet; the classify call's own tokens are not counted.
+    } finally {
+      await update($, route, () => ({ tier, isClassifying: false }))
     }
-    await update($, route, () => ({ tier, isClassifying: false }))
 
     return next(e)
   }).catch(($, e, next) => next(e)) // never block a prompt because the router failed
@@ -165,8 +191,6 @@ export const register: Register = on => {
     const { tier } = await read($, route)
     const routed = m === 'auto' ? tier : m
     const effort = effortFor(routed, await read($, effortOverride))
-    // ponytail: TEMP measurement of effort-switch cache cost; remove once the cache question is settled.
-    $.ui.log(`[router] step model=${TIERS[routed].model} effort=${effort}`, { to: 'debug' })
 
     return yield* next({ ...e, model: TIERS[routed].model, effort })
   })
@@ -174,14 +198,13 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && e.usage) {
       const usage = e.usage
-      // ponytail: TEMP cache measurement; compare cache_read across an effort-only change.
-      $.ui.log(`[router] complete model=${usage.model} cache_read=${usage.cache_read_input_tokens} cache_write=${usage.cache_creation_input_tokens} input=${usage.input_tokens}`, { to: 'debug' })
       const price = Object.values(TIERS).find(p => p.model === usage.model)
       await update($, totals, t => ({
         tokens: t.tokens + usage.input_tokens + usage.output_tokens +
           usage.cache_read_input_tokens + usage.cache_creation_input_tokens,
+        // A model with no price here (the session's own, a [1m] variant) saves nothing.
         cost: t.cost + (price ? costOf(usage, price) : 0),
-        baseline: t.baseline + costOf(usage, TIERS.complex),
+        baseline: t.baseline + (price ? costOf(usage, TIERS.complex) : 0),
       }))
     }
 
@@ -189,11 +212,11 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    // One band tree per instance: stack on what the hooks beneath drew (e.g. usage-band).
-    const rest = await next(e).catch(() => undefined) // nothing beneath = nothing to stack on
     if (e.props.hasSurvey) {
-      return rest
+      return next(e)
     }
+    // One band tree per instance: stack on what the hooks beneath drew (e.g. usage-band).
+    const rest = await next(e)
 
     const m = await read($, mode)
     const { tier, isClassifying } = await read($, route)
@@ -211,19 +234,22 @@ export const register: Register = on => {
       : `${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
 
     const dim = m === 'off'
+    // Powerline glyphs need a Nerd Font, which only a terminal has.
+    const isTerminal = e.surface === 'terminal'
+    const sep = isTerminal ? SEP : '·'
 
     // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
     const row = (
       <Text wrap="truncate-end" dimColor={dim}>
         <Text backgroundColor={BG} color="#00afff" weight="bold">{` 🤖 Router ${label} `}</Text>
-        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG} color="#808080">{sep}</Text>
         <Text backgroundColor={BG}> </Text>
         <Text backgroundColor={BG} color={color} weight="bold">{model}</Text>
         {effort && <Text backgroundColor={BG} color="#a8a8a8">{` · effort ${effort}`}</Text>}
         <Text backgroundColor={BG}> </Text>
-        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG} color="#808080">{sep}</Text>
         <Text backgroundColor={BG} color="#5fd700">{` ${detail} `}</Text>
-        <Text color={BG}>{CAP}</Text>
+        {isTerminal && <Text color={BG}>{CAP}</Text>}
       </Text>
     )
 

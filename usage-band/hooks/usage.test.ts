@@ -8,12 +8,15 @@ const line = (id: string, model: string, n: number, ago = 0) => `${new Date(NOW 
 // Stubs for the engine's host calls; `stdout` is what the scan command prints.
 const host = (on: On, stdout: string, isOpenStubbed = true) => {
   on('clock.now', () => ({ value: NOW }))
-  on('store.get', () => ({ value: undefined }))
-  on('store.set', () => ({ value: undefined }))
+  const store = new Map<string, unknown>()
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: {}, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
   if (isOpenStubbed) on('ui.open', () => ({ value: { isPlaced: true } }))
-  on('process.run', () => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false } }))
+  on('clock.after', () => ({ value: undefined }))
+  on('classic.SessionStart', () => ({}))
+  on('process.run', () => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
 }
 
 const BAND = {
@@ -24,16 +27,16 @@ const BAND = {
 } as const
 
 describe('usage-band', () => {
-  test('/usage pane opens the pane', async ($, on) => {
+  test('/usage-band pane opens the pane', async ($, on) => {
     host(on, '')
-    const r = await $.command.run({ command: 'usage', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const r = await $.command.run({ command: 'usage-band', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
     expect(r.text).toMatch(/pane opened/)
   })
 
-  test('/usage alone turns the line on and opens no pane', async ($, on) => {
+  test('/usage-band alone turns the line on and opens no pane', async ($, on) => {
     host(on, '', false)
     on('ui.open', () => { throw new Error('opened') })
-    const r = await $.command.run({ command: 'usage', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const r = await $.command.run({ command: 'usage-band', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
     expect(r.text).toBe('Usage line on.')
   })
 
@@ -56,15 +59,69 @@ describe('usage-band', () => {
       line('m3', 'claude-sonnet-5-5', 50, 3 * 86_400_000), // this week, not today
       line('m4', 'claude-sonnet-5-5', 10, 30 * 86_400_000), // older than a week: left out
     ].join('\n'))
-    await $.command.run({ command: 'usage', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-    const ui = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'Pane', requestId: 'usage', props: { bodyColumns: 80, view: {} } })
+    await $.command.run({ command: 'usage-band', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const ui = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'Pane', requestId: 'usage', props: { title: 'Usage', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { bodyRows: 20, offset: 0 }, view: {} } })
     expect(await ui.find({ type: 'Text', text: /claude-haiku-5-5/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /claude-opus-5-5/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /claude-sonnet-5-5/ })).toBeTruthy()
-    expect(await ui.find({ type: 'Text', text: /claude-opus-5-5/ })).toBeTruthy()
     expect(await ui.find({ type: 'Text', text: /^900$/ })).toBeTruthy() // m1 counted once, its last line
     expect(await ui.find({ type: 'Text', text: /^1000$/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /Agents/ })).toBeTruthy()
+    await ui.unmount()
+  })
+
+  test('/usage-band off still hides the band after /clear resets $.state', async ($, on) => {
+    host(on, '')
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
+    await $.command.run({ command: 'usage-band', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    await $.classic.SessionStart({ source: 'clear' })
+    const ui = await $.ui.mount(BAND)
+    expect(await ui.find({ type: 'Text', text: /Usage/ })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('the band steps aside for a survey', async ($, on) => {
+    host(on, '')
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
+    expect(await ui.find({ type: 'Text', text: /Usage/ })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test('the band draws a plain separator off the terminal', async ($, on) => {
+    host(on, '')
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect(await ui.find({ type: 'Text', text: /^·$/ })).toBeTruthy()
+    await ui.unmount()
+  })
+
+  test('the pane fills with the terminal-matching background', async ($, on) => {
+    host(on, '')
+    await $.command.run({ command: 'usage-band', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const ui = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'Pane', requestId: 'usage', props: { title: 'Usage', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { bodyRows: 20, offset: 0 }, view: {} } })
+    const drawn = await ui.drawn()
+    const box = drawn.type === 'Box' ? (drawn.props as { backgroundColor?: string; height?: number }) : {}
+    expect(box.backgroundColor).toBe('#1b1d1e')
+    expect(box.height).toBe(20)
+    await ui.unmount()
+  })
+
+  test('session.start registers /usage-band, not the built-in /usage', async ($, on) => {
+    host(on, '')
+    const names: string[] = []
+    on('session.start', ($, e) => ({ cwd: e.cwd }))
+    on('command.register', ($, e) => { names.push(e.name); return { value: undefined as never } })
+    await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+    expect(names).toEqual(['usage-band'])
+  })
+
+  test('an inline pane is only as tall as its content', async ($, on) => {
+    host(on, '')
+    await $.command.run({ command: 'usage-band', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const ui = await $.ui.mount({ plugin: 'usage-band', surface: 'terminal', component: 'Pane', requestId: 'usage', props: { title: 'Usage', isFocused: false, bodyColumns: 80, placement: 'inline', scroll: { bodyRows: 20, offset: 0 }, view: {} } })
+    const drawn = await ui.drawn()
+    expect(drawn.type === 'Box' && (drawn.props as { height?: number }).height).toBeUndefined()
     await ui.unmount()
   })
 })

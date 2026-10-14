@@ -1,9 +1,12 @@
 import { atom, read, update } from 'claude-code'
-import type { Engine, Register } from 'claude-code'
+import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import type { Agents, Limit, Scan } from '../types'
 
 const PANE = 'usage'
+// The engine fills a pane with its own colour when the mod draws none, and the API cannot read the terminal's.
+// ponytail: measured from a dark terminal (#1b1d1e); change here if yours differs.
+const PANE_BG = '#1b1d1e'
 const OFF_KEY = 'isOff'
 const TTL_MS = 60_000
 const WEEK_MS = 7 * 86_400_000
@@ -53,12 +56,14 @@ const dayOf = (ms: number) => {
 const scanUsage = async ($: Engine) => {
   const now = await $.clock.now()
   if (now - (await read($, scan)).at < TTL_MS) return
+  // Claim the slot first: a scan takes seconds, and several turns can complete meanwhile.
+  await update($, scan, s => ({ ...s, at: now }))
   try {
     const { stdout, isStdoutTruncated } = await $.process.run(['sh', '-c', SCAN_CMD], { timeoutMs: 60_000 })
     const byId = new Map<string, { model: string; n: number; ts: number }>()
     for (const line of stdout.split('\n')) {
       const [timestamp, id, model, n] = line.split(' ')
-      if (id) byId.set(id, { model, n: Number(n), ts: Date.parse(timestamp) })
+      if (id && model && timestamp && Number(n) > 0) byId.set(id, { model, n: Number(n), ts: Date.parse(timestamp) })
     }
     const today: Record<string, number> = {}
     const week: Record<string, number> = {}
@@ -71,7 +76,6 @@ const scanUsage = async ($: Engine) => {
     await update($, scan, () => ({ at: now, today, week, isTruncated: isStdoutTruncated }))
   } catch {
     // ponytail: a failed scan keeps the last numbers; it retries after the TTL, not on every draw.
-    await update($, scan, s => ({ ...s, at: now }))
   }
 }
 
@@ -81,28 +85,45 @@ const seedMain = async ($: Engine) => {
   await update($, agents, a => (a.main ? a : { ...a, main: { label: 'main', model, tokens: 0, turns: 0 } }))
 }
 
+// Off the dispatch: the scan reads every transcript, so no prompt or turn waits on it.
+const scanLater = ($: Engine) => $.clock.after(0, () => void scanUsage($).catch(() => {}))
+
+const openPane = async ($: Engine) => {
+  await scanUsage($)
+  await seedMain($)
+  await $.ui.open({ id: PANE, title: 'Usage' })
+}
+
+// $.state starts over on /clear, /resume and /branch, so session.start and classic.SessionStart both load it.
+const load = async ($: Engine) => {
+  const off = Boolean(await $.store.get(OFF_KEY))
+  await update($, isOff, () => off)
+  await seedMain($)
+  const { rateLimits } = await $.session.usage()
+  await update($, limits, () => rateLimits)
+  scanLater($)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'usage', description: 'Show usage under the prompt (off to hide, pane for the per-model pane)', argumentHint: 'off|pane' })
-    const off = Boolean(await $.store.get(OFF_KEY))
-    await update($, isOff, () => off)
-    await seedMain($)
-    const { rateLimits } = await $.session.usage()
-    await update($, limits, () => rateLimits)
-    await scanUsage($)
+    await $.command.register({ name: 'usage-band', description: 'Show usage under the prompt (off to hide, pane for the per-model pane)', argumentHint: 'off|pane' })
+    await load($)
 
     return next(e)
   })
 
-  on('command.run', { command: 'usage' }, async ($, e) => {
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    await load($)
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a failed load never holds up the session
+
+  on('command.run', { command: 'usage-band' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
     if (arg === 'pane') {
-      await scanUsage($)
-      await seedMain($)
-      await $.ui.open({ id: PANE, title: 'Usage' })
+      await openPane($)
       return { text: 'Usage pane opened.' }
     }
-    if (arg !== '' && arg !== 'off') return { text: 'Usage: /usage [off|pane]' }
+    if (arg !== '' && arg !== 'off') return { text: 'Usage: /usage-band [off|pane]' }
     await $.store.set(OFF_KEY, arg === 'off')
     await update($, isOff, () => arg === 'off')
 
@@ -126,9 +147,10 @@ export const register: Register = on => {
     }
 
     return r
-  })
+  }).catch(($, e, next) => next(e)) // a failed label never blocks the spawn
 
   on('turn.complete', async ($, e, next) => {
+    const r = await next(e)
     if (e.usage) {
       const u = e.usage
       const n = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
@@ -137,31 +159,33 @@ export const register: Register = on => {
         const was = a[id] ?? { label: id === 'main' ? 'main' : `agent ${id.slice(0, 6)}`, model: u.model, tokens: 0, turns: 0 }
         return { ...a, [id]: { ...was, model: u.model, tokens: was.tokens + n, turns: was.turns + 1 } }
       })
-      await scanUsage($)
+      scanLater($)
     }
 
-    return next(e)
+    return r
   })
 
   // A band above the prompt is one tree per instance: stack on whatever the hooks beneath drew (model-router's band).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const rest = await next(e).catch(() => undefined) // nothing beneath = nothing to stack on
-    if (e.props.hasSurvey || (await read($, isOff))) return rest
+    if (e.props.hasSurvey || (await read($, isOff))) return next(e)
+    const rest = await next(e)
 
     const { Box, Text, Button } = $.ui.resolve(e)
     const ls = await read($, limits)
     const s = await read($, scan)
     const five = ls.find(l => l.kind === 'five_hour')
     const week = ls.find(l => l.kind === 'seven_day')
+    // Powerline glyphs need a Nerd Font, which only a terminal has.
+    const sep = e.surface === 'terminal' ? SEP : '·'
     const pct = (l: typeof five) => (l ? `${l.percentUsed}%` : 'n/a')
     const row = (
-      <Button key="usage" label="Usage" onPress={() => $.ui.open({ id: PANE, title: 'Usage' })}>
+      <Button key="usage" label="Usage" plain onPress={() => openPane($)}>
         <Text weight="bold" color={TITLE}>{' 📊 Usage '}</Text>
-        <Text color={MUTED}>{SEP}</Text>
+        <Text color={MUTED}>{sep}</Text>
         <Text color={five ? heat(five.percentUsed) : MUTED}>{` Session ${pct(five)} `}</Text>
-        <Text color={MUTED}>{SEP}</Text>
+        <Text color={MUTED}>{sep}</Text>
         <Text color={GOOD}>{` Today ${tokens(sum(s.today))} tok `}</Text>
-        <Text color={MUTED}>{SEP}</Text>
+        <Text color={MUTED}>{sep}</Text>
         <Text color={week ? heat(week.percentUsed) : MUTED}>{` Week ${pct(week)} `}</Text>
       </Button>
     )
@@ -198,7 +222,8 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column">
+      // Fill the docked pane to its last row; an inline pane is only as tall as its content.
+      <Box flexDirection="column" backgroundColor={PANE_BG} height={e.props.placement === 'dock' ? e.props.scroll.bodyRows : undefined}>
         {s.isTruncated && <Text color={MUTED}>partial: transcripts cut at 4 MiB</Text>}
         {section('Today · all sessions', s.today)}
         {section('This week · all sessions', s.week)}

@@ -17,7 +17,7 @@ A band above the prompt shows the live route and session totals:
  🤖 Router Active  claude-sonnet-5-5 · effort medium  41.2k tok · $0.0912 · saved $0.0911 vs Opus 
 ```
 
-It is drawn as dark Powerlevel10k-style segments with arrow separators, so it needs a Powerline/Nerd Font in your terminal; without one the arrows show as boxes.
+It is drawn as dark Powerlevel10k-style segments with arrow separators, so it needs a Powerline/Nerd Font in your terminal; without one the arrows show as boxes. Off the terminal (the desktop app) it draws `·` separators instead.
 
 Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list price.
 
@@ -30,12 +30,12 @@ Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list 
 | `/route off` | Router steps aside; your session model runs |
 | `/route haiku` / `sonnet` / `opus` | Lock every turn to that model, no classification |
 | `/route fable` / `mythos` | Lock every turn to `claude-fable-5-1` or `claude-mythos-5-1` ($10/$50 per MTok, 2.5× Opus), effort `medium`. Asks you to confirm twice |
-| `/route effort <level>` | Use this effort for every routed turn (`low`, `medium`, `high`) |
+| `/route effort <level>` | Use this effort for every routed turn (`low`, `medium`, `high`; `xhigh`/`max` see below) |
 | `/route effort xhigh` / `max` | Same, but asks you to confirm first |
 | `/route effort default` | Back to each tier's default effort |
 | `/route status` | Show the current state |
 
-The band shows `Router Active`, `Router Off` (dim, with the session model) or `Router Locked`, plus the effort. The settings last for the session only.
+The band shows `Router Active`, `Router Off` (dim, with the session model) or `Router Locked`, plus the effort. `/route` choices are saved and come back in a new session and after `/clear`, `/resume` or `/branch`, except a Fable or Mythos lock, which comes back as `auto`. The token and cost totals are for the current conversation.
 
 Automatic routing never picks `xhigh`, `max` or Fable; they burn tokens fast, so `xhigh`/`max` need your explicit yes each time, and Fable and Mythos only run when you lock them with `/route fable` or `/route mythos` and answer yes to two separate confirmations. A dismissed or unanswered dialog counts as no. Mythos 5.1 is only available to Project Glasswing participants; without access its requests fail.
 
@@ -43,7 +43,7 @@ Automatic routing never picks `xhigh`, `max` or Fable; they burn tokens fast, so
 
 ```
 /plugin marketplace add <owner>/<repo>
-/plugin install model-router@calund-plugins
+/plugin install model-router@dizzyobeah-plugins
 ```
 
 Before the repository is on GitHub, use the local folder instead: `/plugin marketplace add /Users/calund/projects/_git/claude_plugins`.
@@ -54,7 +54,7 @@ Or try it locally: `claude --plugin-dir ./model-router`.
 
 - Prices (per MTok, in `hooks/register.tsx` → `TIERS`): Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10, Opus 5.5 $4/$20, Fable 5.1 and Mythos 5.1 $10/$50 (cache reads $0.25); cache writes 1.25× input. Update them there when pricing changes.
 - Default effort per tier is also in `TIERS`. Effort is sent on each `turn.step`; a model without effort support is sent none.
-- Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write. A change of effort may do the same; not yet measured.
+- Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write.
 - The classifier call's own tokens are not counted in the totals.
 - Slash commands and hidden prompts are not classified; they run on the last route.
 
