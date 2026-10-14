@@ -1,4 +1,4 @@
-# claude-code-plugins
+# dizzyobeah-plugins
 
 Claude Code plugins and mods by Dizzyobeah. Mods change Claude's own interface or behaviour (bands above the prompt, slash commands, hooks); plugins add skills, agents and commands. Each one lives in its own folder with its own README.
 
@@ -14,7 +14,7 @@ Add the marketplace once, then install what you want:
 
 ```
 /plugin marketplace add Dizzyobeah/claude_plugins
-/plugin install model-router@claude-code-plugins
+/plugin install model-router@dizzyobeah-plugins
 ```
 
 To test local changes, add it from the folder instead:
