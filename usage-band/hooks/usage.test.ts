@@ -39,4 +39,16 @@ describe('usage-band', () => {
     expect(await ui.find({ type: 'Text', text: /Session/ })).toBeTruthy()
     await ui.unmount()
   })
+
+  test('the pane draws the agent section', async $ => {
+    const ui = await $.ui.mount({
+      plugin: 'usage-band',
+      surface: 'terminal',
+      component: 'Pane',
+      requestId: 'usage',
+      props: { bodyColumns: 80, view: {} },
+    })
+    expect(await ui.find({ type: 'Text', text: /Agents/ })).toBeTruthy()
+    await ui.unmount()
+  })
 })

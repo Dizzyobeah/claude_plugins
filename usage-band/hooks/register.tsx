@@ -1,9 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, ThemeKey } from 'claude-code'
 
-import type { Daily } from '../types'
+import type { Agents, Daily } from '../types'
 
-const PANE = 'usage-by-model'
+const PANE = 'usage'
 const STORE_KEY = 'daily'
 const OFF_KEY = 'isOff'
 
@@ -29,6 +29,7 @@ const heat = (pct: number) => (pct >= 90 ? 'red' : pct >= 70 ? 'yellow' : '#5fd7
 const limits = atom({ plugin: 'usage-band', key: 'limits' } as const, [])
 const daily = atom({ plugin: 'usage-band', key: 'daily' } as const, { date: '', byModel: {} } as Daily)
 
+const agents = atom({ plugin: 'usage-band', key: 'agents' } as const, {} as Agents)
 const isOff = atom({ plugin: 'usage-band', key: 'isOff' } as const, false)
 
 const total = (d: Daily) => Object.values(d.byModel).reduce((a, b) => a + b, 0)
@@ -50,7 +51,7 @@ export const register: Register = on => {
   on('command.run', { command: 'usage' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
     if (arg === 'pane') {
-      await $.ui.open({ id: PANE, title: 'Usage by model' })
+      await $.ui.open({ id: PANE, title: 'Usage' })
       return { text: 'Usage pane opened.' }
     }
     if (arg !== '' && arg !== 'off') return { text: 'Usage: /usage [off|pane]' }
@@ -68,10 +69,26 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Name each subagent by its type and task; the main loop is 'main'.
+  on('agent.spawn', async ($, e, next) => {
+    const r = await next(e)
+    const id = r.agentId
+    if (id) {
+      await update($, agents, a => ({ ...a, [id]: { label: `${e.subagentType}: ${e.description}`, model: r.model, tokens: 0, turns: 0 } }))
+    }
+
+    return r
+  })
+
   on('turn.complete', async ($, e, next) => {
     if (e.usage) {
       const u = e.usage
       const n = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+      const id = e.agentId ?? 'main'
+      await update($, agents, a => {
+        const was = a[id] ?? { label: id === 'main' ? 'main' : `agent ${id.slice(0, 6)}`, model: u.model, tokens: 0, turns: 0 }
+        return { ...a, [id]: { ...was, model: u.model, tokens: was.tokens + n, turns: was.turns + 1 } }
+      })
       const date = today(await $.clock.now())
       const prev = await read($, daily)
       const base = prev.date === date ? prev.byModel : {}
@@ -89,14 +106,14 @@ export const register: Register = on => {
     const rest = await next(e).catch(() => undefined) // nothing beneath = nothing to stack on
     if (e.props.hasSurvey || (await read($, isOff))) return rest
 
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const ls = await read($, limits)
     const d = await read($, daily)
     const five = ls.find(l => l.kind === 'five_hour')
     const week = ls.find(l => l.kind === 'seven_day')
     const pct = (l: typeof five) => (l ? `${l.percentUsed}%` : 'n/a')
     const row = (
-      <Text wrap="truncate-end">
+      <Button key="usage" label="Usage" onPress={() => $.ui.open({ id: PANE, title: 'Usage' })}>
         <Text backgroundColor={BG} color="#00afff" weight="bold">{' 📊 Usage '}</Text>
         <Text backgroundColor={BG} color="#808080">{SEP}</Text>
         <Text backgroundColor={BG} color={five ? heat(five.percentUsed) : '#808080'}>{` Session ${pct(five)} `}</Text>
@@ -105,7 +122,7 @@ export const register: Register = on => {
         <Text backgroundColor={BG} color="#808080">{SEP}</Text>
         <Text backgroundColor={BG} color={week ? heat(week.percentUsed) : '#808080'}>{` Week ${pct(week)} `}</Text>
         <Text color={BG}>{CAP}</Text>
-      </Text>
+      </Button>
     )
 
     return rest ? <Box flexDirection="column">{rest}{row}</Box> : row
@@ -114,8 +131,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     const d = await read($, daily)
+    const as = Object.entries(await read($, agents)).sort((x, y) => y[1].tokens - x[1].tokens)
     const sum = total(d)
-    const rows = Object.entries(d.byModel).sort((a, b) => b[1] - a[1])
+    const rows = Object.entries(d.byModel).sort((x, y) => y[1] - x[1])
+    const spent = as.reduce((t, [, a]) => t + a.tokens, 0)
 
     return (
       <Box flexDirection="column">
@@ -132,6 +151,15 @@ export const register: Register = on => {
             </Text>
           )
         })}
+        <Text weight="bold">{'\nAgents · this session'}</Text>
+        {as.length === 0 && <Text dimColor>No agent has answered yet.</Text>}
+        {as.map(([id, a]) => (
+          <Box key={id} flexDirection="column" borderStyle="round" borderColor={colorOf(a.model)} paddingX={1}>
+            <Text weight="bold" wrap="truncate-end">{a.label}</Text>
+            <Text color={colorOf(a.model)}>{a.model}</Text>
+            <Text>{`${tokens(a.tokens)} tok · ${a.turns} turn${a.turns === 1 ? '' : 's'} · ${spent ? Math.round((a.tokens / spent) * 100) : 0}%`}</Text>
+          </Box>
+        ))}
       </Box>
     )
   })
