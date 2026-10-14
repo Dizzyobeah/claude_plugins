@@ -26,4 +26,17 @@ describe('usage-band', () => {
     })
     expect(r.text).toBe('Usage line on.')
   })
+
+  test('the band stacks on the tree beneath it instead of replacing it', async ($, on) => {
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Text', props: {}, children: ['Router band'] }))
+    const ui = await $.ui.mount({
+      plugin: 'usage-band',
+      surface: 'terminal',
+      component: 'AbovePrompt',
+      props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 120, scroll: { bodyRows: 10, offset: 0, contentRows: 2 }, view: {} },
+    })
+    expect(await ui.find({ type: 'Text', text: /Router band/ })).toBeTruthy()
+    expect(await ui.find({ type: 'Text', text: /Session/ })).toBeTruthy()
+    await ui.unmount()
+  })
 })

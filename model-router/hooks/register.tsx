@@ -189,14 +189,16 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // One band tree per instance: stack on what the hooks beneath drew (e.g. usage-band).
+    const rest = await next(e).catch(() => undefined) // nothing beneath = nothing to stack on
     if (e.props.hasSurvey) {
-      return next(e)
+      return rest
     }
 
     const m = await read($, mode)
     const { tier, isClassifying } = await read($, route)
     const t = await read($, totals)
-    const { Text } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
     const { model, color } =
       m === 'off'
         ? { model: await $.session.model(), color: undefined }
@@ -211,7 +213,7 @@ export const register: Register = on => {
     const dim = m === 'off'
 
     // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
-    return (
+    const row = (
       <Text wrap="truncate-end" dimColor={dim}>
         <Text backgroundColor={BG} color="#00afff" weight="bold">{` 🤖 Router ${label} `}</Text>
         <Text backgroundColor={BG} color="#808080">{SEP}</Text>
@@ -224,5 +226,7 @@ export const register: Register = on => {
         <Text color={BG}>{CAP}</Text>
       </Text>
     )
+
+    return rest ? <Box flexDirection="column">{rest}{row}</Box> : row
   })
 }
