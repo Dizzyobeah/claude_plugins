@@ -27,6 +27,7 @@ Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list 
 | `/route on` / `auto` | Classify and route each prompt (default) |
 | `/route off` | Router steps aside; your session model runs |
 | `/route haiku` / `sonnet` / `opus` | Lock every turn to that model, no classification |
+| `/route fable` | Lock every turn to `claude-fable-5-1` ($10/$50 per MTok, 2.5× Opus), effort `medium` |
 | `/route effort <level>` | Use this effort for every routed turn (`low`, `medium`, `high`) |
 | `/route effort xhigh` / `max` | Same, but asks you to confirm first |
 | `/route effort default` | Back to each tier's default effort |
@@ -34,7 +35,7 @@ Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list 
 
 The band shows `Router Active`, `Router Off` (dim, with the session model) or `Router Locked`, plus the effort. The settings last for the session only.
 
-Automatic routing never picks `xhigh` or `max`; they burn tokens fast, so they need your explicit yes each time.
+Automatic routing never picks `xhigh`, `max` or Fable; they burn tokens fast, so `xhigh`/`max` need your explicit yes each time and Fable only runs when you lock it with `/route fable`.
 
 ## Install
 
@@ -49,7 +50,7 @@ Or try it locally: `claude --plugin-dir ./model-router`.
 
 ## Notes
 
-- Prices (per MTok, in `hooks/register.tsx` → `TIERS`): Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10, Opus 5.5 $4/$20; cache writes 1.25× input. Update them there when pricing changes.
+- Prices (per MTok, in `hooks/register.tsx` → `TIERS`): Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10, Opus 5.5 $4/$20, Fable 5.1 $10/$50 (cache reads $0.25); cache writes 1.25× input. Update them there when pricing changes.
 - Default effort per tier is also in `TIERS`. Effort is sent on each `turn.step`; a model without effort support is sent none.
 - Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write. A change of effort may do the same; not yet measured.
 - The classifier call's own tokens are not counted in the totals.

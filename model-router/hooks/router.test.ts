@@ -176,6 +176,20 @@ describe('model-router', () => {
     expect(efforts).toEqual([undefined])
   })
 
+  test('/route fable locks to Fable; the classifier can never pick it', async ($, on) => {
+    const seen = engine(on, () => 'frontier')
+    await submit($, 'Redesign the auth architecture across all services')
+    await step($)
+    expect(seen).toEqual(['claude-sonnet-5-5'])
+    await route($, 'fable')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(calls.classify).toBe(1)
+    expect(seen).toEqual(['claude-sonnet-5-5', 'claude-fable-5-1'])
+    expect(efforts).toEqual(['medium', 'medium'])
+    expect(await bandText($)).toContain('claude-fable-5-1')
+  })
+
   test('a bad /route argument changes nothing', async ($, on) => {
     engine(on, () => 'simple')
     await route($, 'opus')

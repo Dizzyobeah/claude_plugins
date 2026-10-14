@@ -10,6 +10,8 @@ const TIERS = {
   simple: { model: 'claude-haiku-5-5', color: 'blue', effort: 'low', input: 0.1, output: 0.5, cacheRead: 0.01 },
   standard: { model: 'claude-sonnet-5-5', color: 'green', effort: 'medium', input: 2, output: 10, cacheRead: 0.2 },
   complex: { model: 'claude-opus-5-5', color: 'magenta', effort: 'medium', input: 4, output: 20, cacheRead: 0.2 },
+  // Manual only (/route fable): 2.5x Opus price, so the classifier never picks it (not in LABELS).
+  frontier: { model: 'claude-fable-5-1', color: 'yellow', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
 } as const
 
 const LABELS = ['simple', 'standard', 'complex'] as const
@@ -41,8 +43,9 @@ const ALIASES: Record<string, Mode> = {
   haiku: 'simple', simple: 'simple',
   sonnet: 'standard', standard: 'standard',
   opus: 'complex', complex: 'complex',
+  fable: 'frontier', frontier: 'frontier',
 }
-const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|status|effort <low|medium|high|xhigh|max|default>]'
+const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|fable|status|effort <low|medium|high|xhigh|max|default>]'
 const EFFORT_OK = 'Yes, use it'
 
 const describe = (m: Mode) =>
@@ -73,8 +76,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'route',
-      description: 'Turn model routing on or off, force Haiku, Sonnet or Opus, or set effort',
-      argumentHint: 'on|off|auto|haiku|sonnet|opus|effort <level>',
+      description: 'Turn model routing on or off, force Haiku, Sonnet, Opus or Fable, or set effort',
+      argumentHint: 'on|off|auto|haiku|sonnet|opus|fable|effort <level>',
     })
 
     return next(e)
