@@ -24,10 +24,12 @@ const bandText = async ($: Engine) => {
 }
 
 const calls = { classify: 0 }
+const efforts: unknown[] = []
 
 const engine = (on: On, classify: () => string | undefined | Promise<never>) => {
   const seen: string[] = []
   calls.classify = 0
+  efforts.length = 0
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('model.classify', async () => {
     calls.classify += 1
@@ -36,6 +38,7 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.step', async function* ($, e) {
     seen.push(e.model)
+    efforts.push(e.effort)
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
   on('turn.complete', () => ({ text: '' }))
@@ -132,6 +135,45 @@ describe('model-router', () => {
     await submit($, 'Redesign the auth architecture across all services')
     await step($)
     expect(seen).toEqual(['claude-haiku-5-5', 'claude-opus-5-5'])
+  })
+
+  test('each tier sends its default effort', async ($, on) => {
+    engine(on, () => 'simple')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(efforts).toEqual(['low'])
+    await route($, 'opus')
+    await step($)
+    expect(efforts).toEqual(['low', 'medium'])
+  })
+
+  test('xhigh and max need approval; a refusal changes nothing', async ($, on) => {
+    engine(on, () => 'standard')
+    expect((await route($, 'effort max')).text).toContain('unchanged')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['medium'])
+  })
+
+  test('/route effort sets a level for routed turns, default clears it', async ($, on) => {
+    engine(on, () => 'standard')
+    expect((await route($, 'effort low')).text).toContain('Effort set to low')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['low'])
+    expect((await route($, 'effort default')).text).toContain('each tier')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['low', 'medium'])
+  })
+
+  test('with routing off the session effort runs untouched', async ($, on) => {
+    engine(on, () => 'simple')
+    await route($, 'effort low')
+    await route($, 'off')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(efforts).toEqual([undefined])
   })
 
   test('a bad /route argument changes nothing', async ($, on) => {

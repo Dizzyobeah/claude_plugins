@@ -1,16 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, TurnUsage } from 'claude-code'
 
-import type { Mode, Tier } from '../types'
+import type { Effort, Mode, Tier } from '../types'
 
-// $ per million tokens; cache writes bill at 1.25x input.
+// $ per million tokens; cache writes bill at 1.25x input. Effort is the default
+// per tier; automatic routing never picks xhigh or max (see /route effort).
+// Opus 5.5's own default is medium, and the docs say it beats Opus 5 at high on coding.
 const TIERS = {
-  simple: { model: 'claude-haiku-5-5', color: 'blue', input: 0.1, output: 0.5, cacheRead: 0.01 },
-  standard: { model: 'claude-sonnet-5-5', color: 'green', input: 2, output: 10, cacheRead: 0.2 },
-  complex: { model: 'claude-opus-5-5', color: 'magenta', input: 4, output: 20, cacheRead: 0.2 },
+  simple: { model: 'claude-haiku-5-5', color: 'blue', effort: 'low', input: 0.1, output: 0.5, cacheRead: 0.01 },
+  standard: { model: 'claude-sonnet-5-5', color: 'green', effort: 'medium', input: 2, output: 10, cacheRead: 0.2 },
+  complex: { model: 'claude-opus-5-5', color: 'magenta', effort: 'medium', input: 4, output: 20, cacheRead: 0.2 },
 } as const
 
 const LABELS = ['simple', 'standard', 'complex'] as const
+const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 const GUIDE = `Rate the complexity of the coding task below.
 simple: file renames, git commits, one-line edits, quick lookups or questions.
@@ -31,6 +34,7 @@ const totals = atom({ plugin: 'model-router', key: 'totals' } as const, {
 })
 
 const mode = atom({ plugin: 'model-router', key: 'mode' } as const, 'auto' as Mode)
+const effortOverride = atom({ plugin: 'model-router', key: 'effortOverride' } as const, null as Effort | null)
 
 const ALIASES: Record<string, Mode> = {
   on: 'auto', auto: 'auto', off: 'off',
@@ -38,7 +42,8 @@ const ALIASES: Record<string, Mode> = {
   sonnet: 'standard', standard: 'standard',
   opus: 'complex', complex: 'complex',
 }
-const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|status]'
+const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|status|effort <low|medium|high|xhigh|max|default>]'
+const EFFORT_OK = 'Yes, use it'
 
 const describe = (m: Mode) =>
   m === 'auto' ? 'Router on: routing each prompt by complexity.'
@@ -47,6 +52,11 @@ const describe = (m: Mode) =>
 
 const isTier = (label: string | undefined): label is Tier =>
   LABELS.some(l => l === label)
+
+const isEffort = (s: string): s is Effort => EFFORTS.some(l => l === s)
+
+// The user's /route effort choice wins; otherwise the tier's default.
+const effortFor = (tier: Tier, override: Effort | null) => override ?? TIERS[tier].effort
 
 const costOf = (usage: TurnUsage, p: (typeof TIERS)[Tier]) =>
   (usage.input_tokens * p.input +
@@ -63,8 +73,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'route',
-      description: 'Turn model routing on or off, or force Haiku, Sonnet or Opus',
-      argumentHint: 'on|off|auto|haiku|sonnet|opus',
+      description: 'Turn model routing on or off, force Haiku, Sonnet or Opus, or set effort',
+      argumentHint: 'on|off|auto|haiku|sonnet|opus|effort <level>',
     })
 
     return next(e)
@@ -74,6 +84,22 @@ export const register: Register = on => {
     const arg = e.args.trim().toLowerCase()
     const current = await read($, mode)
     if (arg === 'status') return { text: describe(current) }
+
+    if (arg === 'effort' || arg.startsWith('effort ')) {
+      const level = arg.slice('effort'.length).trim()
+      if (level === '' || level === 'default') {
+        await update($, effortOverride, () => null)
+        return { text: 'Effort back to each tier\'s default.' }
+      }
+      if (!isEffort(level)) return { text: USAGE }
+      // xhigh and max cost far more tokens, so they need an explicit yes each time.
+      if (level === 'xhigh' || level === 'max') {
+        const answer = await $.ui.ask(`Use ${level} effort for every routed turn? It burns tokens fast.`, [EFFORT_OK, 'No']).catch(() => 'No')
+        if (answer !== EFFORT_OK) return { text: `Effort unchanged (${level} not approved).` }
+      }
+      await update($, effortOverride, () => level)
+      return { text: `Effort set to ${level} for routed turns.` }
+    }
 
     const next: Mode | undefined = arg === '' ? (current === 'off' ? 'auto' : 'off') : ALIASES[arg]
     if (next === undefined) return { text: USAGE }
@@ -111,13 +137,19 @@ export const register: Register = on => {
       return yield* next(e)
     }
     const { tier } = await read($, route)
+    const routed = m === 'auto' ? tier : m
+    const effort = effortFor(routed, await read($, effortOverride))
+    // ponytail: TEMP measurement of effort-switch cache cost; remove once the cache question is settled.
+    $.ui.log(`[router] step model=${TIERS[routed].model} effort=${effort}`, { to: 'debug' })
 
-    return yield* next({ ...e, model: TIERS[m === 'auto' ? tier : m].model })
+    return yield* next({ ...e, model: TIERS[routed].model, effort })
   })
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && e.usage) {
       const usage = e.usage
+      // ponytail: TEMP cache measurement; compare cache_read across an effort-only change.
+      $.ui.log(`[router] complete model=${usage.model} cache_read=${usage.cache_read_input_tokens} cache_write=${usage.cache_creation_input_tokens} input=${usage.input_tokens}`, { to: 'debug' })
       const price = Object.values(TIERS).find(p => p.model === usage.model)
       await update($, totals, t => ({
         tokens: t.tokens + usage.input_tokens + usage.output_tokens +
@@ -143,6 +175,7 @@ export const register: Register = on => {
       m === 'off'
         ? { model: await $.session.model(), color: undefined }
         : TIERS[m === 'auto' ? tier : m]
+    const effort = m === 'off' ? undefined : effortFor(m === 'auto' ? tier : m, await read($, effortOverride))
     const label = m === 'auto' ? 'Active' : m === 'off' ? 'Off' : 'Locked'
     const detail = isClassifying
       ? ' · classifying…'
@@ -152,7 +185,8 @@ export const register: Register = on => {
 
     return (
       <Text wrap="truncate-end" dimColor={m === 'off'}>
-        🤖 [Router {label}] -&gt; [Current Model: <Text color={color} weight="bold">{model}</Text>]
+        🤖 [Router {label}] -&gt; [Current Model: <Text color={color} weight="bold">{model}</Text>
+        {effort && <Text dimColor> · effort {effort}</Text>}]
         <Text dimColor>{detail}</Text>
       </Text>
     )

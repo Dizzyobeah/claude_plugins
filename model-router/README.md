@@ -2,11 +2,11 @@
 
 A Claude Code mod that classifies every prompt you type and runs the turn on the model that fits:
 
-| Tier | Examples | Model | Band colour |
-| --- | --- | --- | --- |
-| simple | file renames, git commits, quick lookups | `claude-haiku-5-5` | blue |
-| standard | features, refactors, tests, typical bug fixes | `claude-sonnet-5-5` | green |
-| complex | architecture, deep debugging, multi-file logic | `claude-opus-5-5` | magenta |
+| Tier | Examples | Model | Effort | Band colour |
+| --- | --- | --- | --- | --- |
+| simple | file renames, git commits, quick lookups | `claude-haiku-5-5` | low | blue |
+| standard | features, refactors, tests, typical bug fixes | `claude-sonnet-5-5` | medium | green |
+| complex | architecture, deep debugging, multi-file logic | `claude-opus-5-5` | medium | magenta |
 
 Classification is one fast Haiku call (`$.model.classify`) before the prompt runs; if it fails the turn runs on Sonnet.
 Subagents keep their own models.
@@ -27,9 +27,14 @@ Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list 
 | `/route on` / `auto` | Classify and route each prompt (default) |
 | `/route off` | Router steps aside; your session model runs |
 | `/route haiku` / `sonnet` / `opus` | Lock every turn to that model, no classification |
+| `/route effort <level>` | Use this effort for every routed turn (`low`, `medium`, `high`) |
+| `/route effort xhigh` / `max` | Same, but asks you to confirm first |
+| `/route effort default` | Back to each tier's default effort |
 | `/route status` | Show the current state |
 
-The band shows `Router Active`, `Router Off` (dim, with the session model) or `Router Locked`. The setting lasts for the session only.
+The band shows `Router Active`, `Router Off` (dim, with the session model) or `Router Locked`, plus the effort. The settings last for the session only.
+
+Automatic routing never picks `xhigh` or `max`; they burn tokens fast, so they need your explicit yes each time.
 
 ## Install
 
@@ -45,7 +50,8 @@ Or try it locally: `claude --plugin-dir ./model-router`.
 ## Notes
 
 - Prices (per MTok, in `hooks/register.tsx` → `TIERS`): Haiku 5.5 $0.10/$0.50, Sonnet 5.5 $2/$10, Opus 5.5 $4/$20; cache writes 1.25× input. Update them there when pricing changes.
-- Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write.
+- Default effort per tier is also in `TIERS`. Effort is sent on each `turn.step`; a model without effort support is sent none.
+- Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write. A change of effort may do the same; not yet measured.
 - The classifier call's own tokens are not counted in the totals.
 - Slash commands and hidden prompts are not classified; they run on the last route.
 
