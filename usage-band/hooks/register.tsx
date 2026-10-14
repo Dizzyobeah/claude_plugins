@@ -1,16 +1,17 @@
 import { atom, read, update } from 'claude-code'
-import type { Engine, Register } from 'claude-code'
+import type { Engine, Register, ThemeKey } from 'claude-code'
 
 import type { Daily } from '../types'
 
 const PANE = 'usage-by-model'
 const STORE_KEY = 'daily'
+const OFF_KEY = 'isOff'
 
-// Same per-model colors as model-router's TIERS.
-const COLORS: [string, string][] = [
-  ['haiku', 'blue'], ['sonnet', 'green'], ['opus', 'magenta'], ['fable', 'yellow'], ['mythos', 'red'],
+// model-router's hues (blue, green, magenta, yellow, red) as theme keys, so the pane follows the selected theme.
+const COLORS: [string, ThemeKey][] = [
+  ['haiku', 'suggestion'], ['sonnet', 'success'], ['opus', 'merged'], ['fable', 'warning'], ['mythos', 'error'],
 ]
-const colorOf = (model: string) => COLORS.find(([k]) => model.includes(k))?.[1] ?? 'gray'
+const colorOf = (model: string): ThemeKey => COLORS.find(([k]) => model.includes(k))?.[1] ?? 'inactive'
 
 // ponytail: UTC day, not local; shift by the offset if the rollover hour matters.
 const today = (ms: number) => new Date(ms).toISOString().slice(0, 10)
@@ -25,6 +26,7 @@ const total = (d: Daily) => Object.values(d.byModel).reduce((a, b) => a + b, 0)
 
 // The status line is plain text pinned under the prompt, so the band above stays model-router's.
 const show = async ($: Engine) => {
+  if (await $.store.get(OFF_KEY)) return $.ui.status(undefined)
   const ls = await read($, limits)
   const pct = (kind: string) => {
     const l = ls.find(x => x.kind === kind)
@@ -35,7 +37,7 @@ const show = async ($: Engine) => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'usage', description: 'Show token usage per model today in a pane' })
+    await $.command.register({ name: 'usage', description: 'Show usage under the prompt (off to hide, pane for the per-model pane)', argumentHint: 'off|pane' })
     const stored = (await $.store.get(STORE_KEY)) as Daily | undefined
     const date = today(await $.clock.now())
     await update($, daily, () => (stored?.date === date ? stored : { date, byModel: {} }))
@@ -46,10 +48,17 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'usage' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Usage by model' })
+  on('command.run', { command: 'usage' }, async ($, e) => {
+    const arg = e.args.trim().toLowerCase()
+    if (arg === 'pane') {
+      await $.ui.open({ id: PANE, title: 'Usage by model' })
+      return { text: 'Usage pane opened.' }
+    }
+    if (arg !== '' && arg !== 'off') return { text: 'Usage: /usage [off|pane]' }
+    await $.store.set(OFF_KEY, arg === 'off')
+    await show($)
 
-    return { text: 'Usage pane opened.' }
+    return { text: arg === 'off' ? 'Usage line hidden.' : 'Usage line on.' }
   })
 
   on('session.measure', async ($, e, next) => {

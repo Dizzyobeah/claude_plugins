@@ -7,7 +7,7 @@ Claude Code plugins and mods by Dizzyobeah. Mods change Claude's own interface o
 | Name | Type | What it does |
 | --- | --- | --- |
 | [model-router](./model-router) | mod | Classifies each prompt and routes it to Haiku, Sonnet or Opus, with `/route` to control it |
-| [usage-band](./usage-band) | mod | Session, daily and weekly usage pinned under the prompt; `/usage` opens a per-model pane. Works alongside model-router |
+| [usage-band](./usage-band) | mod | Session, daily and weekly usage pinned under the prompt; `/usage` turns it on (`off` hides it), `/usage pane` opens a per-model pane. Works alongside model-router |
 
 ## Install
 

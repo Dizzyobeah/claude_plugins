@@ -1,7 +1,7 @@
 {
   "name": "usage-band",
   "version": "0.1.0",
-  "description": "Session, daily and weekly usage pinned under the prompt, with /usage for a per-model breakdown pane",
+  "description": "Session, daily and weekly usage pinned under the prompt, with /usage to turn it on, and /usage pane for a per-model breakdown pane",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Dizzyobeah"
