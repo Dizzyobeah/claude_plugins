@@ -3,6 +3,8 @@ import { describe, expect, test } from 'claude-code/testing'
 describe('usage-band', () => {
   test('/usage opens the pane', async ($, on) => {
     on('ui.open', () => ({ value: { isPlaced: true } }))
+    on('store.get', () => ({ value: undefined }))
+    on('clock.now', () => ({ value: Date.now() }))
     const r = await $.command.run({
       command: 'usage',
       args: 'pane',
@@ -50,5 +52,23 @@ describe('usage-band', () => {
     })
     expect(await ui.find({ type: 'Text', text: /Agents/ })).toBeTruthy()
     await ui.unmount()
+  })
+
+  test("a turn keeps other sessions' models in the pane", async ($, on) => {
+    const day = new Date().toISOString().slice(0, 10)
+    const sets: unknown[] = []
+    on('store.get', () => ({ value: { date: day, byModel: { 'claude-haiku-5-5': 100 } } }))
+    on('store.set', (_$, e) => { sets.push(e.value); return { value: undefined } })
+    on('turn.complete', () => ({ text: '' }))
+    on('clock.now', () => ({ value: Date.now() }))
+    await $.turn.complete({
+      turnId: 't1',
+      reason: 'answer',
+      answer: 'done',
+      durationMs: 1,
+      isAborted: false,
+      usage: { model: 'claude-opus-5-5', input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    })
+    expect(sets).toContainEqual({ date: day, byModel: { 'claude-haiku-5-5': 100, 'claude-opus-5-5': 15 } })
   })
 })
