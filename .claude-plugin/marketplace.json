@@ -1,0 +1,16 @@
+{
+  "name": "Claude Code Plugins",
+  "owner": {
+    "name": "Dizzyobeah"
+  },
+  "metadata": {
+    "description": "Claude Code plugins and mods by Dizzyobeah"
+  },
+  "plugins": [
+    {
+      "name": "model-router",
+      "source": "./model-router",
+      "description": "Classifies each prompt and routes it to Haiku, Sonnet or Opus, with /route to control it"
+    }
+  ]
+}
