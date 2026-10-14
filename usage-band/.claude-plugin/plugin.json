@@ -1,7 +1,7 @@
 {
   "name": "usage-band",
-  "version": "0.2.3",
-  "description": "Session, daily and weekly usage in a Powerline band above the prompt, stacked with other bands, with /usage to turn it on, and click it or /usage pane for a live per-model and per-agent pane",
+  "version": "0.3.0",
+  "description": "Session, daily and weekly usage in a Powerline band above the prompt, stacked with other bands, with /usage-band to turn it on, and click it or /usage-band pane for a live per-model and per-agent pane",
   "types": "./types/index.d.ts",
   "author": {
     "name": "Dizzyobeah"

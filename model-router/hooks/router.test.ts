@@ -16,8 +16,8 @@ const BAND = {
   },
 } as const
 
-const bandText = async ($: Engine) => {
-  const ui = await $.ui.mount(BAND)
+const bandText = async ($: Engine, surface: 'terminal' | 'desktop' = 'terminal') => {
+  const ui = await $.ui.mount({ ...BAND, surface })
   const text = (await ui.find({ type: 'Text', text: /Router/ }))?.text
   await ui.unmount()
   return text
@@ -31,6 +31,11 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
   calls.classify = 0
   efforts.length = 0
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  const store = new Map<string, unknown>()
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
+  on('classic.SessionStart', () => ({}))
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
   on('model.classify', async () => {
     calls.classify += 1
     return { value: await classify() }
@@ -49,7 +54,7 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
 const answerAsks = (on: On, answers: string[]) => {
   const asked: string[] = []
   on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
-    const question = e.questions[0].question
+    const question = e.questions[0]?.question ?? ''
     asked.push(question)
     const answer = answers.shift()
     if (answer === undefined) return { deny: 'dismissed' }
@@ -231,4 +236,42 @@ describe('model-router', () => {
     expect((await route($, 'banana')).text).toContain('Usage')
     expect((await route($, 'status')).text).toContain('claude-opus-5-5')
   })
+
+  test('/route off and the effort survive /clear', async ($, on) => {
+    const seen = engine(on, () => 'simple')
+    await route($, 'off')
+    await route($, 'effort low')
+    await $.classic.SessionStart({ source: 'clear' })
+    expect((await route($, 'status')).text).toContain('Router off')
+    await route($, 'auto')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(seen).toEqual(['claude-haiku-5-5'])
+    expect(efforts).toEqual(['low'])
+  })
+
+  test('a Mythos lock loads back as auto, never skipping its confirmations', async ($, on) => {
+    engine(on, () => 'standard')
+    answerAsks(on, ['Yes, use it', 'Yes, use it'])
+    await route($, 'mythos')
+    await $.classic.SessionStart({ source: 'resume' })
+    expect((await route($, 'status')).text).toContain('Router on')
+  })
+
+  test('a turn on an unpriced model claims no savings', async ($, on) => {
+    engine(on, () => 'standard')
+    await route($, 'off')
+    await $.turn.complete({
+      turnId: 't1', reason: 'answer', answer: 'done', durationMs: 1000, isAborted: false,
+      usage: { model: 'claude-opus-5-5[1m]', input_tokens: 1_000_000, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    })
+    expect(await bandText($)).toContain('saved $0.0000 vs Opus')
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    test(`the band draws on ${surface}`, async ($, on) => {
+      engine(on, () => 'standard')
+      expect(await bandText($, surface)).toContain('Router Active')
+    })
+  }
 })

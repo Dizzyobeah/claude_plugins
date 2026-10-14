@@ -10,12 +10,12 @@
     {
       "name": "model-router",
       "source": "./model-router",
-      "description": "Classifies each prompt and routes it to Haiku, Sonnet or Opus, with /route to control it"
+      "description": "Classifies each prompt and routes it to Haiku, Sonnet or Opus (or locks it to one, Fable and Mythos included), with /route for model and effort and a live route and savings band above the prompt"
     },
     {
       "name": "usage-band",
       "source": "./usage-band",
-      "description": "Session, daily and weekly usage pinned under the prompt, with /usage for a per-model pane"
+      "description": "Session, daily and weekly usage in a Powerline band above the prompt, stacked with other bands, with /usage-band to turn it on, and click it or /usage-band pane for a live per-model and per-agent pane"
     }
   ]
 }
