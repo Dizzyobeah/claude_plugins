@@ -1,16 +1,28 @@
 import { atom, read, update } from 'claude-code'
 import type { Register, TurnUsage } from 'claude-code'
 
-import type { Mode, Tier } from '../types'
+import type { Effort, Mode, Tier } from '../types'
 
-// $ per million tokens; cache writes bill at 1.25x input.
+// $ per million tokens; cache writes bill at 1.25x input. Effort is the default
+// per tier; automatic routing never picks xhigh or max (see /route effort).
+// Opus 5.5's own default is medium, and the docs say it beats Opus 5 at high on coding.
 const TIERS = {
-  simple: { model: 'claude-haiku-5-5', color: 'blue', input: 0.1, output: 0.5, cacheRead: 0.01 },
-  standard: { model: 'claude-sonnet-5-5', color: 'green', input: 2, output: 10, cacheRead: 0.2 },
-  complex: { model: 'claude-opus-5-5', color: 'magenta', input: 4, output: 20, cacheRead: 0.2 },
+  simple: { model: 'claude-haiku-5-5', color: 'blue', effort: 'low', input: 0.1, output: 0.5, cacheRead: 0.01 },
+  standard: { model: 'claude-sonnet-5-5', color: 'green', effort: 'medium', input: 2, output: 10, cacheRead: 0.2 },
+  complex: { model: 'claude-opus-5-5', color: 'magenta', effort: 'medium', input: 4, output: 20, cacheRead: 0.2 },
+  // Fable and Mythos: manual only (/route fable|mythos), 2.5x Opus price, double confirmation.
+  // The classifier never picks them (not in LABELS). Mythos 5.1 needs Project Glasswing access.
+  frontier: { model: 'claude-fable-5-1', color: 'yellow', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
+  mythos: { model: 'claude-mythos-5-1', color: 'red', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
 } as const
 
+// Powerlevel10k-style band: dark segments, thin arrows between, a solid arrow to close (needs a Nerd/Powerline font).
+const BG = '#303030'
+const SEP = '\ue0b1'
+const CAP = '\ue0b0'
+
 const LABELS = ['simple', 'standard', 'complex'] as const
+const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 const GUIDE = `Rate the complexity of the coding task below.
 simple: file renames, git commits, one-line edits, quick lookups or questions.
@@ -31,14 +43,18 @@ const totals = atom({ plugin: 'model-router', key: 'totals' } as const, {
 })
 
 const mode = atom({ plugin: 'model-router', key: 'mode' } as const, 'auto' as Mode)
+const effortOverride = atom({ plugin: 'model-router', key: 'effortOverride' } as const, null as Effort | null)
 
 const ALIASES: Record<string, Mode> = {
   on: 'auto', auto: 'auto', off: 'off',
   haiku: 'simple', simple: 'simple',
   sonnet: 'standard', standard: 'standard',
   opus: 'complex', complex: 'complex',
+  fable: 'frontier', frontier: 'frontier', mythos: 'mythos',
 }
-const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|status]'
+const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|fable|mythos|status|effort <low|medium|high|xhigh|max|default>]'
+const YES = 'Yes, use it'
+const GATED = ['frontier', 'mythos'] as const // models that need a double confirmation
 
 const describe = (m: Mode) =>
   m === 'auto' ? 'Router on: routing each prompt by complexity.'
@@ -47,6 +63,11 @@ const describe = (m: Mode) =>
 
 const isTier = (label: string | undefined): label is Tier =>
   LABELS.some(l => l === label)
+
+const isEffort = (s: string): s is Effort => EFFORTS.some(l => l === s)
+
+// The user's /route effort choice wins; otherwise the tier's default.
+const effortFor = (tier: Tier, override: Effort | null) => override ?? TIERS[tier].effort
 
 const costOf = (usage: TurnUsage, p: (typeof TIERS)[Tier]) =>
   (usage.input_tokens * p.input +
@@ -63,20 +84,51 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'route',
-      description: 'Turn model routing on or off, or force Haiku, Sonnet or Opus',
-      argumentHint: 'on|off|auto|haiku|sonnet|opus',
+      description: 'Turn model routing on or off, force Haiku, Sonnet, Opus, Fable or Mythos, or set effort',
+      argumentHint: 'on|off|auto|haiku|sonnet|opus|fable|mythos|effort <level>',
     })
 
     return next(e)
   })
 
   on('command.run', { command: 'route' }, async ($, e) => {
+    const yes = (question: string) =>
+      $.ui.ask(question, [YES, 'No']).then(a => a === YES, () => false) // dismissed or headless = no
     const arg = e.args.trim().toLowerCase()
     const current = await read($, mode)
     if (arg === 'status') return { text: describe(current) }
 
+    if (arg === 'effort' || arg.startsWith('effort ')) {
+      const level = arg.slice('effort'.length).trim()
+      if (level === '' || level === 'default') {
+        await update($, effortOverride, () => null)
+        return { text: 'Effort back to each tier\'s default.' }
+      }
+      if (!isEffort(level)) return { text: USAGE }
+      // xhigh and max cost far more tokens, so they need an explicit yes each time.
+      if (level === 'xhigh' || level === 'max') {
+        if (!(await yes(`Use ${level} effort for every routed turn? It burns tokens fast.`))) {
+          return { text: `Effort unchanged (${level} not approved).` }
+        }
+      }
+      await update($, effortOverride, () => level)
+      return { text: `Effort set to ${level} for routed turns.` }
+    }
+
     const next: Mode | undefined = arg === '' ? (current === 'off' ? 'auto' : 'off') : ALIASES[arg]
     if (next === undefined) return { text: USAGE }
+
+    // Fable and Mythos are 2.5x Opus: two separate yeses, and any other answer leaves the route alone.
+    if (GATED.some(g => g === next) && next !== current) {
+      const { model, input, output } = TIERS[next as (typeof GATED)[number]]
+      const price = `$${input}/$${output} per MTok`
+      if (
+        !(await yes(`Lock every turn to ${model} (${price}, 2.5x Opus)?`)) ||
+        !(await yes(`Really? Every turn bills at ${price} until you run /route auto.`))
+      ) {
+        return { text: `Router unchanged (${model} not approved).` }
+      }
+    }
 
     await update($, mode, () => next)
 
@@ -111,13 +163,19 @@ export const register: Register = on => {
       return yield* next(e)
     }
     const { tier } = await read($, route)
+    const routed = m === 'auto' ? tier : m
+    const effort = effortFor(routed, await read($, effortOverride))
+    // ponytail: TEMP measurement of effort-switch cache cost; remove once the cache question is settled.
+    $.ui.log(`[router] step model=${TIERS[routed].model} effort=${effort}`, { to: 'debug' })
 
-    return yield* next({ ...e, model: TIERS[m === 'auto' ? tier : m].model })
+    return yield* next({ ...e, model: TIERS[routed].model, effort })
   })
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined && e.usage) {
       const usage = e.usage
+      // ponytail: TEMP cache measurement; compare cache_read across an effort-only change.
+      $.ui.log(`[router] complete model=${usage.model} cache_read=${usage.cache_read_input_tokens} cache_write=${usage.cache_creation_input_tokens} input=${usage.input_tokens}`, { to: 'debug' })
       const price = Object.values(TIERS).find(p => p.model === usage.model)
       await update($, totals, t => ({
         tokens: t.tokens + usage.input_tokens + usage.output_tokens +
@@ -143,17 +201,27 @@ export const register: Register = on => {
       m === 'off'
         ? { model: await $.session.model(), color: undefined }
         : TIERS[m === 'auto' ? tier : m]
+    const effort = m === 'off' ? undefined : effortFor(m === 'auto' ? tier : m, await read($, effortOverride))
     const label = m === 'auto' ? 'Active' : m === 'off' ? 'Off' : 'Locked'
+    // Always shown; before the first turn the totals are zero.
     const detail = isClassifying
-      ? ' · classifying…'
-      : t.tokens > 0
-        ? ` · ${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
-        : ''
+      ? 'classifying…'
+      : `${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
 
+    const dim = m === 'off'
+
+    // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
     return (
-      <Text wrap="truncate-end" dimColor={m === 'off'}>
-        🤖 [Router {label}] -&gt; [Current Model: <Text color={color} weight="bold">{model}</Text>]
-        <Text dimColor>{detail}</Text>
+      <Text wrap="truncate-end" dimColor={dim}>
+        <Text backgroundColor={BG} color="#00afff" weight="bold">{` 🤖 Router ${label} `}</Text>
+        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG}> </Text>
+        <Text backgroundColor={BG} color={color} weight="bold">{model}</Text>
+        {effort && <Text backgroundColor={BG} color="#a8a8a8">{` · effort ${effort}`}</Text>}
+        <Text backgroundColor={BG}> </Text>
+        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG} color="#5fd700">{` ${detail} `}</Text>
+        <Text color={BG}>{CAP}</Text>
       </Text>
     )
   })

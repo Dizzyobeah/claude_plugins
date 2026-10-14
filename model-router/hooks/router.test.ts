@@ -24,10 +24,12 @@ const bandText = async ($: Engine) => {
 }
 
 const calls = { classify: 0 }
+const efforts: unknown[] = []
 
 const engine = (on: On, classify: () => string | undefined | Promise<never>) => {
   const seen: string[] = []
   calls.classify = 0
+  efforts.length = 0
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   on('model.classify', async () => {
     calls.classify += 1
@@ -36,10 +38,24 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.step', async function* ($, e) {
     seen.push(e.model)
+    efforts.push(e.effort)
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: null }
   })
   on('turn.complete', () => ({ text: '' }))
   return seen
+}
+
+// Answer every AskUserQuestion dialog from `answers`, in order; no answers left = dismissed.
+const answerAsks = (on: On, answers: string[]) => {
+  const asked: string[] = []
+  on('tool.call', { tool: 'AskUserQuestion' }, ($, e) => {
+    const question = e.questions[0].question
+    asked.push(question)
+    const answer = answers.shift()
+    if (answer === undefined) return { deny: 'dismissed' }
+    return { result: { questions: e.questions, answers: { [question]: answer } }, text: answer }
+  })
+  return asked
 }
 
 const submit = ($: Engine, text: string) =>
@@ -132,6 +148,81 @@ describe('model-router', () => {
     await submit($, 'Redesign the auth architecture across all services')
     await step($)
     expect(seen).toEqual(['claude-haiku-5-5', 'claude-opus-5-5'])
+  })
+
+  test('each tier sends its default effort', async ($, on) => {
+    engine(on, () => 'simple')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(efforts).toEqual(['low'])
+    await route($, 'opus')
+    await step($)
+    expect(efforts).toEqual(['low', 'medium'])
+  })
+
+  test('xhigh and max need approval; a refusal changes nothing', async ($, on) => {
+    engine(on, () => 'standard')
+    expect((await route($, 'effort max')).text).toContain('unchanged')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['medium'])
+  })
+
+  test('/route effort sets a level for routed turns, default clears it', async ($, on) => {
+    engine(on, () => 'standard')
+    expect((await route($, 'effort low')).text).toContain('Effort set to low')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['low'])
+    expect((await route($, 'effort default')).text).toContain('each tier')
+    await submit($, 'add a settings page')
+    await step($)
+    expect(efforts).toEqual(['low', 'medium'])
+  })
+
+  test('with routing off the session effort runs untouched', async ($, on) => {
+    engine(on, () => 'simple')
+    await route($, 'effort low')
+    await route($, 'off')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(efforts).toEqual([undefined])
+  })
+
+  test('/route fable locks to Fable after two yeses; the classifier can never pick it', async ($, on) => {
+    const seen = engine(on, () => 'frontier')
+    const asked = answerAsks(on, ['Yes, use it', 'Yes, use it'])
+    await submit($, 'Redesign the auth architecture across all services')
+    await step($)
+    expect(seen).toEqual(['claude-sonnet-5-5'])
+    expect((await route($, 'fable')).text).toContain('locked to claude-fable-5-1')
+    expect(asked).toHaveLength(2)
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(calls.classify).toBe(1)
+    expect(seen).toEqual(['claude-sonnet-5-5', 'claude-fable-5-1'])
+    expect(efforts).toEqual(['medium', 'medium'])
+    expect(await bandText($)).toContain('claude-fable-5-1')
+  })
+
+  test('Fable and Mythos stay off unless both confirmations are yes', async ($, on) => {
+    const seen = engine(on, () => 'standard')
+    const asked = answerAsks(on, ['Yes, use it', 'No', 'No', 'Yes, use it'])
+    expect((await route($, 'fable')).text).toContain('unchanged') // second ask refused
+    expect((await route($, 'mythos')).text).toContain('unchanged') // first ask refused
+    expect(asked).toHaveLength(3)
+    await route($, 'mythos') // both asks dismissed
+    await submit($, 'add a settings page')
+    await step($)
+    expect(seen).toEqual(['claude-sonnet-5-5'])
+  })
+
+  test('/route mythos locks to Mythos after two yeses', async ($, on) => {
+    const seen = engine(on, () => 'standard')
+    answerAsks(on, ['Yes, use it', 'Yes, use it'])
+    expect((await route($, 'mythos')).text).toContain('locked to claude-mythos-5-1')
+    await step($)
+    expect(seen).toEqual(['claude-mythos-5-1'])
   })
 
   test('a bad /route argument changes nothing', async ($, on) => {
