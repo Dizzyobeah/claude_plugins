@@ -14,8 +14,10 @@ Subagents keep their own models.
 A band above the prompt shows the live route and session totals:
 
 ```
-🤖 [Router Active] -> [Current Model: claude-sonnet-5-5] · 41.2k tok · $0.0912 · saved $0.0911 vs Opus
+ 🤖 Router Active  claude-sonnet-5-5 · effort medium  41.2k tok · $0.0912 · saved $0.0911 vs Opus 
 ```
+
+It is drawn as dark Powerlevel10k-style segments with arrow separators, so it needs a Powerline/Nerd Font in your terminal; without one the arrows show as boxes.
 
 Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list price.
 

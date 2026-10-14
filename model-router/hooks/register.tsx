@@ -16,6 +16,11 @@ const TIERS = {
   mythos: { model: 'claude-mythos-5-1', color: 'red', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
 } as const
 
+// Powerlevel10k-style band: dark segments, thin arrows between, a solid arrow to close (needs a Nerd/Powerline font).
+const BG = '#303030'
+const SEP = '\ue0b1'
+const CAP = '\ue0b0'
+
 const LABELS = ['simple', 'standard', 'complex'] as const
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
@@ -198,17 +203,25 @@ export const register: Register = on => {
         : TIERS[m === 'auto' ? tier : m]
     const effort = m === 'off' ? undefined : effortFor(m === 'auto' ? tier : m, await read($, effortOverride))
     const label = m === 'auto' ? 'Active' : m === 'off' ? 'Off' : 'Locked'
+    // Always shown; before the first turn the totals are zero.
     const detail = isClassifying
-      ? ' · classifying…'
-      : t.tokens > 0
-        ? ` · ${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
-        : ''
+      ? 'classifying…'
+      : `${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
 
+    const dim = m === 'off'
+
+    // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
     return (
-      <Text wrap="truncate-end" dimColor={m === 'off'}>
-        🤖 [Router {label}] -&gt; [Current Model: <Text color={color} weight="bold">{model}</Text>
-        {effort && <Text dimColor> · effort {effort}</Text>}]
-        <Text dimColor>{detail}</Text>
+      <Text wrap="truncate-end" dimColor={dim}>
+        <Text backgroundColor={BG} color="#00afff" weight="bold">{` 🤖 Router ${label} `}</Text>
+        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG}> </Text>
+        <Text backgroundColor={BG} color={color} weight="bold">{model}</Text>
+        {effort && <Text backgroundColor={BG} color="#a8a8a8">{` · effort ${effort}`}</Text>}
+        <Text backgroundColor={BG}> </Text>
+        <Text backgroundColor={BG} color="#808080">{SEP}</Text>
+        <Text backgroundColor={BG} color="#5fd700">{` ${detail} `}</Text>
+        <Text color={BG}>{CAP}</Text>
       </Text>
     )
   })
