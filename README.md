@@ -7,7 +7,7 @@ Claude Code plugins and mods by Dizzyobeah. Mods change Claude's own interface o
 | Name | Type | What it does |
 | --- | --- | --- |
 | [model-router](./model-router) | mod | Classifies each prompt and routes it to Haiku, Sonnet or Opus, with `/route` to control it |
-| [usage-band](./usage-band) | mod | Session, daily and weekly usage pinned under the prompt; `/usage` opens a per-model pane. Works alongside model-router |
+| [usage-band](./usage-band) | mod | Session, daily and weekly usage in a band above the prompt; `/usage` turns it on (`off` hides it), click the band or `/usage pane` for a live per-model and per-agent pane. Works alongside model-router |
 
 ## Install
 
@@ -31,3 +31,7 @@ To test local changes, add it from the folder instead:
 2. Add an entry to `plugins` in `.claude-plugin/marketplace.json` with `"source": "./<name>"`.
 3. Add a row to the table above.
 4. Run `claude plugin validate .` here.
+
+### Bands above the prompt
+
+The band above the prompt is one tree per instance, so a plain `return <row/>` hides every other plugin's band. A mod that draws there must stack: `const rest = await next(e).catch(() => undefined)`, then return `rest ? <Box flexDirection="column">{rest}{row}</Box> : row`. model-router and usage-band do this, so they show together.
