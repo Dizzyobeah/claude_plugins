@@ -10,8 +10,10 @@ const TIERS = {
   simple: { model: 'claude-haiku-5-5', color: 'blue', effort: 'low', input: 0.1, output: 0.5, cacheRead: 0.01 },
   standard: { model: 'claude-sonnet-5-5', color: 'green', effort: 'medium', input: 2, output: 10, cacheRead: 0.2 },
   complex: { model: 'claude-opus-5-5', color: 'magenta', effort: 'medium', input: 4, output: 20, cacheRead: 0.2 },
-  // Manual only (/route fable): 2.5x Opus price, so the classifier never picks it (not in LABELS).
+  // Fable and Mythos: manual only (/route fable|mythos), 2.5x Opus price, double confirmation.
+  // The classifier never picks them (not in LABELS). Mythos 5.1 needs Project Glasswing access.
   frontier: { model: 'claude-fable-5-1', color: 'yellow', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
+  mythos: { model: 'claude-mythos-5-1', color: 'red', effort: 'medium', input: 10, output: 50, cacheRead: 0.25 },
 } as const
 
 const LABELS = ['simple', 'standard', 'complex'] as const
@@ -43,10 +45,11 @@ const ALIASES: Record<string, Mode> = {
   haiku: 'simple', simple: 'simple',
   sonnet: 'standard', standard: 'standard',
   opus: 'complex', complex: 'complex',
-  fable: 'frontier', frontier: 'frontier',
+  fable: 'frontier', frontier: 'frontier', mythos: 'mythos',
 }
-const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|fable|status|effort <low|medium|high|xhigh|max|default>]'
-const EFFORT_OK = 'Yes, use it'
+const USAGE = 'Usage: /route [on|off|auto|haiku|sonnet|opus|fable|mythos|status|effort <low|medium|high|xhigh|max|default>]'
+const YES = 'Yes, use it'
+const GATED = ['frontier', 'mythos'] as const // models that need a double confirmation
 
 const describe = (m: Mode) =>
   m === 'auto' ? 'Router on: routing each prompt by complexity.'
@@ -76,14 +79,16 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'route',
-      description: 'Turn model routing on or off, force Haiku, Sonnet, Opus or Fable, or set effort',
-      argumentHint: 'on|off|auto|haiku|sonnet|opus|fable|effort <level>',
+      description: 'Turn model routing on or off, force Haiku, Sonnet, Opus, Fable or Mythos, or set effort',
+      argumentHint: 'on|off|auto|haiku|sonnet|opus|fable|mythos|effort <level>',
     })
 
     return next(e)
   })
 
   on('command.run', { command: 'route' }, async ($, e) => {
+    const yes = (question: string) =>
+      $.ui.ask(question, [YES, 'No']).then(a => a === YES, () => false) // dismissed or headless = no
     const arg = e.args.trim().toLowerCase()
     const current = await read($, mode)
     if (arg === 'status') return { text: describe(current) }
@@ -97,8 +102,9 @@ export const register: Register = on => {
       if (!isEffort(level)) return { text: USAGE }
       // xhigh and max cost far more tokens, so they need an explicit yes each time.
       if (level === 'xhigh' || level === 'max') {
-        const answer = await $.ui.ask(`Use ${level} effort for every routed turn? It burns tokens fast.`, [EFFORT_OK, 'No']).catch(() => 'No')
-        if (answer !== EFFORT_OK) return { text: `Effort unchanged (${level} not approved).` }
+        if (!(await yes(`Use ${level} effort for every routed turn? It burns tokens fast.`))) {
+          return { text: `Effort unchanged (${level} not approved).` }
+        }
       }
       await update($, effortOverride, () => level)
       return { text: `Effort set to ${level} for routed turns.` }
@@ -106,6 +112,18 @@ export const register: Register = on => {
 
     const next: Mode | undefined = arg === '' ? (current === 'off' ? 'auto' : 'off') : ALIASES[arg]
     if (next === undefined) return { text: USAGE }
+
+    // Fable and Mythos are 2.5x Opus: two separate yeses, and any other answer leaves the route alone.
+    if (GATED.some(g => g === next) && next !== current) {
+      const { model, input, output } = TIERS[next as (typeof GATED)[number]]
+      const price = `$${input}/$${output} per MTok`
+      if (
+        !(await yes(`Lock every turn to ${model} (${price}, 2.5x Opus)?`)) ||
+        !(await yes(`Really? Every turn bills at ${price} until you run /route auto.`))
+      ) {
+        return { text: `Router unchanged (${model} not approved).` }
+      }
+    }
 
     await update($, mode, () => next)
 
