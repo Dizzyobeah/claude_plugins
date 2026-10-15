@@ -274,4 +274,13 @@ describe('model-router', () => {
       expect(await bandText($, surface)).toContain('Router Active')
     })
   }
+
+  test('on desktop the band has no dark fill and uses theme colours', async ($, on) => {
+    engine(on, () => 'standard')
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const title = await ui.find({ type: 'Text', text: /^ 🤖 Router Active $/ })
+    expect(title?.props?.backgroundColor).toBeUndefined()
+    expect(title?.props?.color).toBe('suggestion')
+    await ui.unmount()
+  })
 })

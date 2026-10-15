@@ -1,6 +1,6 @@
 {
   "name": "model-router",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Classifies each prompt and routes it to Haiku, Sonnet or Opus (or locks it to one, Fable and Mythos included), with /route for model and effort and a live route and savings band above the prompt",
   "types": "./types/index.d.ts",
   "author": {
