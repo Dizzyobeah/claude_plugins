@@ -34,7 +34,13 @@ const COLORS: [string, string][] = [
 ]
 const colorOf = (model: string) => COLORS.find(([k]) => model.includes(k))?.[1] ?? 'gray'
 
-const heat = (pct: number) => (pct >= 90 ? 'red' : pct >= 70 ? 'yellow' : GOOD)
+// The terminal's Powerline hex colours; the desktop's theme keys, which follow its light or dark theme.
+const paletteOf = (surface: string) => {
+  const c = surface === 'terminal'
+    ? { title: TITLE, muted: MUTED, good: GOOD, warn: 'yellow', bad: 'red' }
+    : { title: 'suggestion', muted: 'subtle', good: 'success', warn: 'warning', bad: 'error' }
+  return { ...c, heat: (pct: number) => (pct >= 90 ? c.bad : pct >= 70 ? c.warn : c.good) }
+}
 
 const tokens = (n: number) =>
   n < 1000 ? `${n}` : n < 1e6 ? `${(n / 1000).toFixed(1)}k` : `${(n / 1e6).toFixed(2)}M`
@@ -178,15 +184,16 @@ export const register: Register = on => {
     // Powerline glyphs need a Nerd Font, which only a terminal has.
     const sep = e.surface === 'terminal' ? SEP : '·'
     const pct = (l: typeof five) => (l ? `${l.percentUsed}%` : 'n/a')
+    const c = paletteOf(e.surface)
     const row = (
       <Button key="usage" label="Usage" plain onPress={() => openPane($)}>
-        <Text weight="bold" color={TITLE}>{' 📊 Usage '}</Text>
-        <Text color={MUTED}>{sep}</Text>
-        <Text color={five ? heat(five.percentUsed) : MUTED}>{` Session ${pct(five)} `}</Text>
-        <Text color={MUTED}>{sep}</Text>
-        <Text color={GOOD}>{` Today ${tokens(sum(s.today))} tok `}</Text>
-        <Text color={MUTED}>{sep}</Text>
-        <Text color={week ? heat(week.percentUsed) : MUTED}>{` Week ${pct(week)} `}</Text>
+        <Text weight="bold" color={c.title}>{' 📊 Usage '}</Text>
+        <Text color={c.muted}>{sep}</Text>
+        <Text color={five ? c.heat(five.percentUsed) : c.muted}>{` Session ${pct(five)} `}</Text>
+        <Text color={c.muted}>{sep}</Text>
+        <Text color={c.good}>{` Today ${tokens(sum(s.today))} tok `}</Text>
+        <Text color={c.muted}>{sep}</Text>
+        <Text color={week ? c.heat(week.percentUsed) : c.muted}>{` Week ${pct(week)} `}</Text>
       </Button>
     )
 
@@ -195,6 +202,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
+    const c = paletteOf(e.surface)
+    const isTerminal = e.surface === 'terminal'
     const s = await read($, scan)
     const as = Object.entries(await read($, agents)).sort((x, y) => y[1].tokens - x[1].tokens)
     const spent = as.reduce((t, [, a]) => t + a.tokens, 0)
@@ -204,8 +213,8 @@ export const register: Register = on => {
       const rows = Object.entries(byModel).sort((x, y) => y[1] - x[1])
       return (
         <Box flexDirection="column">
-          <Text color={TITLE} weight="bold">{title}</Text>
-          {rows.length === 0 && <Text color={MUTED}>No usage.</Text>}
+          <Text color={c.title} weight="bold">{title}</Text>
+          {rows.length === 0 && <Text color={c.muted}>No usage.</Text>}
           {rows.map(([model, n]) => {
             const p = (n / total) * 100
             return (
@@ -213,7 +222,7 @@ export const register: Register = on => {
                 <Text color={colorOf(model)} weight="bold">{`${p.toFixed(1).padStart(5)}% `}</Text>
                 <Text color={colorOf(model)}>{'█'.repeat(Math.max(1, Math.round(p / 5)))}</Text>
                 <Text>{` ${model} `}</Text>
-                <Text color={MUTED}>{tokens(n)}</Text>
+                <Text color={c.muted}>{tokens(n)}</Text>
               </Text>
             )
           })}
@@ -222,18 +231,18 @@ export const register: Register = on => {
     }
 
     return (
-      // Fill the docked pane to its last row; an inline pane is only as tall as its content.
-      <Box flexDirection="column" backgroundColor={PANE_BG} height={e.props.placement === 'dock' ? e.props.scroll.bodyRows : undefined}>
-        {s.isTruncated && <Text color={MUTED}>partial: transcripts cut at 4 MiB</Text>}
+      // Fill the terminal's docked pane to its last row; an inline pane, or the desktop's, is only as tall as its content and on the app's own background.
+      <Box flexDirection="column" backgroundColor={isTerminal ? PANE_BG : undefined} height={isTerminal && e.props.placement === 'dock' ? e.props.scroll.bodyRows : undefined}>
+        {s.isTruncated && <Text color={c.muted}>partial: transcripts cut at 4 MiB</Text>}
         {section('Today · all sessions', s.today)}
         {section('This week · all sessions', s.week)}
-        <Text color={TITLE} weight="bold">{'\nAgents · this session'}</Text>
-        {as.length === 0 && <Text color={MUTED}>No agent has answered yet.</Text>}
+        <Text color={c.title} weight="bold">{'\nAgents · this session'}</Text>
+        {as.length === 0 && <Text color={c.muted}>No agent has answered yet.</Text>}
         {as.map(([id, a]) => (
           <Box key={id} flexDirection="column" borderStyle="round" borderColor={colorOf(a.model)} paddingX={1}>
             <Text weight="bold" wrap="truncate-end">{a.label}</Text>
             <Text color={colorOf(a.model)}>{a.model}</Text>
-            <Text color={MUTED}>{`${tokens(a.tokens)} tok · ${a.turns} turn${a.turns === 1 ? '' : 's'} · ${spent ? Math.round((a.tokens / spent) * 100) : 0}%`}</Text>
+            <Text color={c.muted}>{`${tokens(a.tokens)} tok · ${a.turns} turn${a.turns === 1 ? '' : 's'} · ${spent ? Math.round((a.tokens / spent) * 100) : 0}%`}</Text>
           </Box>
         ))}
       </Box>

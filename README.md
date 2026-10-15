@@ -19,6 +19,10 @@ Add the marketplace once, then install what you want:
 /plugin install usage-band@dizzyobeah-plugins
 ```
 
+### Desktop app
+
+Both mods also run in the Claude desktop app's Code tab. `/plugin` is a terminal command, so install from a terminal at the **user** scope (the default); every desktop Code session on this machine then loads them. There the bands and the usage pane draw with `·` separators, no terminal fill, and the app's own theme colours, so they read in light and dark mode.
+
 To test local changes, add it from the folder instead:
 
 ```

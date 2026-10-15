@@ -124,4 +124,20 @@ describe('usage-band', () => {
     expect(drawn.type === 'Box' && (drawn.props as { height?: number }).height).toBeUndefined()
     await ui.unmount()
   })
+
+  test('on desktop the band and pane follow the app theme, with no terminal fill', async ($, on) => {
+    host(on, line('m1', 'claude-opus-5-5', 500))
+    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
+    const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    expect((await band.find({ type: 'Text', text: /Usage/ }))?.props?.color).toBe('suggestion')
+    await band.unmount()
+    await $.command.run({ command: 'usage-band', args: 'pane', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+    const pane = await $.ui.mount({ plugin: 'usage-band', surface: 'desktop', component: 'Pane', requestId: 'usage', props: { title: 'Usage', isFocused: false, bodyColumns: 80, placement: 'dock', scroll: { bodyRows: 20, offset: 0 }, view: {} } })
+    const drawn = await pane.drawn()
+    const box = drawn.type === 'Box' ? (drawn.props as { backgroundColor?: string; height?: number }) : {}
+    expect(box.backgroundColor).toBeUndefined()
+    expect(box.height).toBeUndefined()
+    expect(await pane.find({ type: 'Text', text: /claude-opus-5-5/ })).toBeTruthy()
+    await pane.unmount()
+  })
 })

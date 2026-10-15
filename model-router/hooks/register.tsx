@@ -234,21 +234,23 @@ export const register: Register = on => {
       : `${tokens(t.tokens)} tok · ${money(t.cost)} · saved ${money(t.baseline - t.cost)} vs Opus`
 
     const dim = m === 'off'
-    // Powerline glyphs need a Nerd Font, which only a terminal has.
+    // Powerline glyphs and a dark fill suit a terminal; the desktop gets plain separators and its theme's colours.
     const isTerminal = e.surface === 'terminal'
     const sep = isTerminal ? SEP : '·'
+    const bg = isTerminal ? BG : undefined
+    const [title, muted, soft, good] = isTerminal ? ['#00afff', '#808080', '#a8a8a8', '#5fd700'] : ['suggestion', 'subtle', 'inactive', 'success']
 
     // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
     const row = (
       <Text wrap="truncate-end" dimColor={dim}>
-        <Text backgroundColor={BG} color="#00afff" weight="bold">{` 🤖 Router ${label} `}</Text>
-        <Text backgroundColor={BG} color="#808080">{sep}</Text>
-        <Text backgroundColor={BG}> </Text>
-        <Text backgroundColor={BG} color={color} weight="bold">{model}</Text>
-        {effort && <Text backgroundColor={BG} color="#a8a8a8">{` · effort ${effort}`}</Text>}
-        <Text backgroundColor={BG}> </Text>
-        <Text backgroundColor={BG} color="#808080">{sep}</Text>
-        <Text backgroundColor={BG} color="#5fd700">{` ${detail} `}</Text>
+        <Text backgroundColor={bg} color={title} weight="bold">{` 🤖 Router ${label} `}</Text>
+        <Text backgroundColor={bg} color={muted}>{sep}</Text>
+        <Text backgroundColor={bg}> </Text>
+        <Text backgroundColor={bg} color={color} weight="bold">{model}</Text>
+        {effort && <Text backgroundColor={bg} color={soft}>{` · effort ${effort}`}</Text>}
+        <Text backgroundColor={bg}> </Text>
+        <Text backgroundColor={bg} color={muted}>{sep}</Text>
+        <Text backgroundColor={bg} color={good}>{` ${detail} `}</Text>
         {isTerminal && <Text color={BG}>{CAP}</Text>}
       </Text>
     )

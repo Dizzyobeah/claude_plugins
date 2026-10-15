@@ -17,7 +17,7 @@ A band above the prompt shows the live route and session totals:
  🤖 Router Active  claude-sonnet-5-5 · effort medium  41.2k tok · $0.0912 · saved $0.0911 vs Opus 
 ```
 
-It is drawn as dark Powerlevel10k-style segments with arrow separators, so it needs a Powerline/Nerd Font in your terminal; without one the arrows show as boxes. Off the terminal (the desktop app) it draws `·` separators instead.
+It is drawn as dark Powerlevel10k-style segments with arrow separators, so it needs a Powerline/Nerd Font in your terminal; without one the arrows show as boxes. In the desktop app it draws `·` separators, no dark fill, and theme colours that follow the app's light or dark mode.
 
 Savings compare each turn's tokens with the same tokens billed at Opus 5.5 list price.
 
