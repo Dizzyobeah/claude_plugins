@@ -243,10 +243,10 @@ export const register: Register = on => {
     // ponytail: one flat run of segments; add a segment by adding a <Text> and a sep.
     const row = (
       <Text wrap="truncate-end" dimColor={dim}>
-        <Text backgroundColor={bg} color={title} weight="bold">{` 🤖 Router ${label} `}</Text>
+        <Text backgroundColor={bg} color={title} bold>{` 🤖 Router ${label} `}</Text>
         <Text backgroundColor={bg} color={muted}>{sep}</Text>
         <Text backgroundColor={bg}> </Text>
-        <Text backgroundColor={bg} color={color} weight="bold">{model}</Text>
+        <Text backgroundColor={bg} color={color} bold>{model}</Text>
         {effort && <Text backgroundColor={bg} color={soft}>{` · effort ${effort}`}</Text>}
         <Text backgroundColor={bg}> </Text>
         <Text backgroundColor={bg} color={muted}>{sep}</Text>
