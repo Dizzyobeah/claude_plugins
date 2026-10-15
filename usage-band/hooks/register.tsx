@@ -187,7 +187,7 @@ export const register: Register = on => {
     const c = paletteOf(e.surface)
     const row = (
       <Button key="usage" label="Usage" plain onPress={() => openPane($)}>
-        <Text weight="bold" color={c.title}>{' 📊 Usage '}</Text>
+        <Text bold color={c.title}>{' 📊 Usage '}</Text>
         <Text color={c.muted}>{sep}</Text>
         <Text color={five ? c.heat(five.percentUsed) : c.muted}>{` Session ${pct(five)} `}</Text>
         <Text color={c.muted}>{sep}</Text>
@@ -213,13 +213,13 @@ export const register: Register = on => {
       const rows = Object.entries(byModel).sort((x, y) => y[1] - x[1])
       return (
         <Box flexDirection="column">
-          <Text color={c.title} weight="bold">{title}</Text>
+          <Text color={c.title} bold>{title}</Text>
           {rows.length === 0 && <Text color={c.muted}>No usage.</Text>}
           {rows.map(([model, n]) => {
             const p = (n / total) * 100
             return (
               <Text key={model}>
-                <Text color={colorOf(model)} weight="bold">{`${p.toFixed(1).padStart(5)}% `}</Text>
+                <Text color={colorOf(model)} bold>{`${p.toFixed(1).padStart(5)}% `}</Text>
                 <Text color={colorOf(model)}>{'█'.repeat(Math.max(1, Math.round(p / 5)))}</Text>
                 <Text>{` ${model} `}</Text>
                 <Text color={c.muted}>{tokens(n)}</Text>
@@ -236,11 +236,11 @@ export const register: Register = on => {
         {s.isTruncated && <Text color={c.muted}>partial: transcripts cut at 4 MiB</Text>}
         {section('Today · all sessions', s.today)}
         {section('This week · all sessions', s.week)}
-        <Text color={c.title} weight="bold">{'\nAgents · this session'}</Text>
+        <Text color={c.title} bold>{'\nAgents · this session'}</Text>
         {as.length === 0 && <Text color={c.muted}>No agent has answered yet.</Text>}
         {as.map(([id, a]) => (
           <Box key={id} flexDirection="column" borderStyle="round" borderColor={colorOf(a.model)} paddingX={1}>
-            <Text weight="bold" wrap="truncate-end">{a.label}</Text>
+            <Text bold wrap="truncate-end">{a.label}</Text>
             <Text color={colorOf(a.model)}>{a.model}</Text>
             <Text color={c.muted}>{`${tokens(a.tokens)} tok · ${a.turns} turn${a.turns === 1 ? '' : 's'} · ${spent ? Math.round((a.tokens / spent) * 100) : 0}%`}</Text>
           </Box>
