@@ -23,12 +23,13 @@ const bandText = async ($: Engine, surface: 'terminal' | 'desktop' = 'terminal')
   return text
 }
 
-const calls = { classify: 0 }
+const calls = { classify: 0, asked: [] as { text: string; labels: readonly string[] }[] }
 const efforts: unknown[] = []
 
 const engine = (on: On, classify: () => string | undefined | Promise<never>) => {
   const seen: string[] = []
   calls.classify = 0
+  calls.asked.length = 0
   efforts.length = 0
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
   const store = new Map<string, unknown>()
@@ -36,8 +37,9 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
   on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
   on('classic.SessionStart', () => ({}))
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
-  on('model.classify', async () => {
+  on('model.classify', async ($, e) => {
     calls.classify += 1
+    calls.asked.push({ text: e.text, labels: e.labels })
     return { value: await classify() }
   })
   on('prompt.submit', ($, e) => ({ text: e.text }))
@@ -73,6 +75,9 @@ const route = ($: Engine, args = '') => $.command.run({
     presentation: { isFullscreen: false, columns: 120 },
   })
 
+const answer = ($: Engine, text: string) =>
+  $.turn.complete({ turnId: 't1', reason: 'answer', answer: text, durationMs: 1000, isAborted: false })
+
 const step = async ($: Engine) => {
   const stream = $.turn.step({ turnId: 't1', index: 0, model: 'claude-sonnet-5-5', messageCount: 1 })
   for await (const _ of stream) {
@@ -86,6 +91,34 @@ describe('model-router', () => {
     await step($)
     expect(seen).toEqual(['claude-opus-5-5'])
     expect(await bandText($)).toContain('claude-opus-5-5')
+  })
+
+  test('a reply to Claude keeps the task route; the classifier sees Claude\'s last message', async ($, on) => {
+    const labels = ['complex', 'reply']
+    const seen = engine(on, () => labels.shift())
+    await submit($, 'Build a crypto library with key rotation across all services')
+    await answer($, 'Should keys rotate daily or weekly?')
+    await submit($, 'weekly')
+    await step($)
+    expect(seen).toEqual(['claude-opus-5-5'])
+    expect(calls.asked[1]?.labels).toContain('reply')
+    expect(calls.asked[1]?.text).toContain('Should keys rotate daily or weekly?')
+  })
+
+  test('a short new task after a complex one routes on its own', async ($, on) => {
+    const labels = ['complex', 'simple']
+    const seen = engine(on, () => labels.shift())
+    await submit($, 'Build a crypto library with key rotation across all services')
+    await answer($, 'Done: the library is in src/crypto.')
+    await submit($, 'rename foo.txt to bar.txt')
+    await step($)
+    expect(seen).toEqual(['claude-haiku-5-5'])
+  })
+
+  test('before Claude has answered there is no reply label', async ($, on) => {
+    engine(on, () => 'simple')
+    await submit($, 'yes')
+    expect(calls.asked[0]?.labels).not.toContain('reply')
   })
 
   test('a simple prompt routes to Haiku', async ($, on) => {

@@ -22,19 +22,22 @@ const SEP = '\ue0b1'
 const CAP = '\ue0b0'
 
 const LABELS = ['simple', 'standard', 'complex'] as const
+const ANSWER_TAIL = 500 // characters of Claude's last message the classifier sees
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max']
 
 const GUIDE = `Rate the complexity of the coding task below.
 simple: file renames, git commits, one-line edits, quick lookups or questions.
 standard: building a feature, refactoring, writing tests, typical bug fixes.
 complex: system architecture, deep or cross-cutting debugging, logic spanning many files.
-
-Task:
+`
+// Offered only once Claude has said something: an answer to it keeps the task's route.
+const REPLY = `reply: answers or approves the assistant's last message and continues its task (yes, go ahead, option B, use the second one). A new request, however short, gets its own tier.
 `
 
 const route = atom({ plugin: 'model-router', key: 'route' } as const, {
   tier: 'standard' as Tier,
   isClassifying: false,
+  lastAnswer: '',
 })
 const totals = atom({ plugin: 'model-router', key: 'totals' } as const, {
   tokens: 0,
@@ -165,15 +168,25 @@ export const register: Register = on => {
       return next(e)
     }
 
+    // With Claude's last message in view, "yes" or "option B" reads as a reply and keeps the task's route,
+    // while "rename foo.txt" is a new task and gets its own tier.
+    const { tier: current, lastAnswer } = await read($, route)
     await update($, route, r => ({ ...r, isClassifying: true }))
     let tier: Tier = 'standard'
     try {
-      const label = await $.model.classify(GUIDE + e.text, LABELS, { model: 'haiku' })
-      if (isTier(label)) tier = label
+      const label = lastAnswer
+        ? await $.model.classify(
+            `${GUIDE}${REPLY}\nAssistant's last message (end):\n${lastAnswer}\n\nUser's message:\n${e.text}`,
+            [...LABELS, 'reply'],
+            { model: 'haiku' },
+          )
+        : await $.model.classify(`${GUIDE}\nTask:\n${e.text}`, LABELS, { model: 'haiku' })
+      if (label === 'reply') tier = current
+      else if (isTier(label)) tier = label
     } catch {
       // ponytail: classifier down → Sonnet; the classify call's own tokens are not counted.
     } finally {
-      await update($, route, () => ({ tier, isClassifying: false }))
+      await update($, route, r => ({ ...r, tier, isClassifying: false }))
     }
 
     return next(e)
@@ -196,6 +209,11 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    // An empty answer (interrupted, thinking only) keeps the previous one.
+    if (e.agentId === undefined && e.answer) {
+      const lastAnswer = e.answer.slice(-ANSWER_TAIL)
+      await update($, route, r => ({ ...r, lastAnswer }))
+    }
     if (e.agentId === undefined && e.usage) {
       const usage = e.usage
       const price = Object.values(TIERS).find(p => p.model === usage.model)
