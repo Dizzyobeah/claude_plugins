@@ -172,7 +172,7 @@ export const register: Register = on => {
     // while "rename foo.txt" is a new task and gets its own tier.
     const { tier: current, lastAnswer } = await read($, route)
     await update($, route, r => ({ ...r, isClassifying: true }))
-    let tier: Tier = 'standard'
+    let tier: Tier = current // a failed or unnamed label keeps the route; it starts as standard (Sonnet)
     try {
       const label = lastAnswer
         ? await $.model.classify(
@@ -184,7 +184,7 @@ export const register: Register = on => {
       if (label === 'reply') tier = current
       else if (isTier(label)) tier = label
     } catch {
-      // ponytail: classifier down → Sonnet; the classify call's own tokens are not counted.
+      // ponytail: classifier down → keep the current route; the classify call's own tokens are not counted.
     } finally {
       await update($, route, r => ({ ...r, tier, isClassifying: false }))
     }
