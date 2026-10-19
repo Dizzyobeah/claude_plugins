@@ -135,6 +135,16 @@ describe('model-router', () => {
     expect(seen).toEqual(['claude-sonnet-5-5'])
   })
 
+  test('a failed classification mid-task keeps the current route', async ($, on) => {
+    let n = 0
+    const seen = engine(on, () => (n++ === 0 ? 'complex' : Promise.reject(new Error('down'))))
+    await submit($, 'Build a crypto library with key rotation across all services')
+    await answer($, 'Should keys rotate daily or weekly?')
+    await submit($, 'weekly')
+    await step($)
+    expect(seen).toEqual(['claude-opus-5-5'])
+  })
+
   test('the band shows cost and savings after a turn', async ($, on) => {
     engine(on, () => 'standard')
     await submit($, 'add a settings page')
