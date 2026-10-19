@@ -57,6 +57,7 @@ Or try it locally: `claude --plugin-dir ./model-router`.
 - Switching models between turns starts a fresh prompt cache on the new model, so a route change costs a cache write.
 - The classifier call's own tokens are not counted in the totals.
 - Slash commands and hidden prompts are not classified; they run on the last route.
+- The classifier sees the end of Claude's last message, so a reply to it ("yes", "option B") keeps the current route, while a new request is classified on its own, however short.
 
 ## Develop
 
