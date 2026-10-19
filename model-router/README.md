@@ -8,7 +8,7 @@ A Claude Code mod that classifies every prompt you type and runs the turn on the
 | standard | features, refactors, tests, typical bug fixes | `claude-sonnet-5-5` | medium | green |
 | complex | architecture, deep debugging, multi-file logic | `claude-opus-5-5` | medium | magenta |
 
-Classification is one fast Haiku call (`$.model.classify`) before the prompt runs; if it fails the turn runs on Sonnet.
+Classification is one fast Haiku call (`$.model.classify`) before the prompt runs; if it fails the turn keeps the current route (Sonnet at the start of a session).
 Subagents keep their own models.
 
 A band above the prompt shows the live route and session totals:
