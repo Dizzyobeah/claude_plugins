@@ -100,7 +100,6 @@ const openPane = async ($: Engine) => {
   await $.ui.open({ id: PANE, title: 'Usage' })
 }
 
-// $.state starts over on /clear, /resume and /branch, so session.start and classic.SessionStart both load it.
 const load = async ($: Engine) => {
   const off = Boolean(await $.store.get(OFF_KEY))
   await update($, isOff, () => off)
@@ -117,11 +116,6 @@ export const register: Register = on => {
 
     return next(e)
   })
-
-  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
-    await load($)
-    return next(e)
-  }).catch(($, e, next) => next(e)) // a failed load never holds up the session
 
   on('command.run', { command: 'usage-band' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()

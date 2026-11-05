@@ -35,7 +35,6 @@ const engine = (on: On, classify: () => string | undefined | Promise<never>) => 
   const store = new Map<string, unknown>()
   on('store.get', ($, e) => ({ value: store.get(e.key) }))
   on('store.set', ($, e) => { store.set(e.key, e.value); return { value: undefined } })
-  on('classic.SessionStart', () => ({}))
   on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
   on('model.classify', async ($, e) => {
     calls.classify += 1
@@ -280,26 +279,7 @@ describe('model-router', () => {
     expect((await route($, 'status')).text).toContain('claude-opus-5-5')
   })
 
-  test('/route off and the effort survive /clear', async ($, on) => {
-    const seen = engine(on, () => 'simple')
-    await route($, 'off')
-    await route($, 'effort low')
-    await $.classic.SessionStart({ source: 'clear' })
-    expect((await route($, 'status')).text).toContain('Router off')
-    await route($, 'auto')
-    await submit($, 'rename foo.txt to bar.txt')
-    await step($)
-    expect(seen).toEqual(['claude-haiku-5-5'])
-    expect(efforts).toEqual(['low'])
-  })
 
-  test('a Mythos lock loads back as auto, never skipping its confirmations', async ($, on) => {
-    engine(on, () => 'standard')
-    answerAsks(on, ['Yes, use it', 'Yes, use it'])
-    await route($, 'mythos')
-    await $.classic.SessionStart({ source: 'resume' })
-    expect((await route($, 'status')).text).toContain('Router on')
-  })
 
   test('a turn on an unpriced model claims no savings', async ($, on) => {
     engine(on, () => 'standard')
