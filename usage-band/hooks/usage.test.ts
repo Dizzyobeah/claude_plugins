@@ -15,7 +15,6 @@ const host = (on: On, stdout: string, isOpenStubbed = true) => {
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200_000 }, rateLimits: [] } }))
   if (isOpenStubbed) on('ui.open', () => ({ value: { isPlaced: true } }))
   on('clock.after', () => ({ value: undefined }))
-  on('classic.SessionStart', () => ({}))
   on('process.run', () => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
 }
 
@@ -70,15 +69,6 @@ describe('usage-band', () => {
     await ui.unmount()
   })
 
-  test('/usage-band off still hides the band after /clear resets $.state', async ($, on) => {
-    host(on, '')
-    on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] })) // the engine's own band: empty
-    await $.command.run({ command: 'usage-band', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-    await $.classic.SessionStart({ source: 'clear' })
-    const ui = await $.ui.mount(BAND)
-    expect(await ui.find({ type: 'Text', text: /Usage/ })).toBeUndefined()
-    await ui.unmount()
-  })
 
   test('the band steps aside for a survey', async ($, on) => {
     host(on, '')

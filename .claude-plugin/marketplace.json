@@ -16,6 +16,11 @@
       "name": "usage-band",
       "source": "./usage-band",
       "description": "Session, daily and weekly usage in a Powerline band above the prompt, stacked with other bands, with /usage-band to turn it on, and click it or /usage-band pane for a live per-model and per-agent pane"
+    },
+    {
+      "name": "factory",
+      "source": "./factory",
+      "description": "A software factory for any git repo: /factory takes a one-line feature through spec, build, parallel reviews and approval to a pull request, with a live dashboard"
     }
   ]
 }

@@ -80,8 +80,7 @@ const money = (n: number) => `$${n.toFixed(n < 1 ? 4 : 2)}`
 
 const tokens = (n: number) => (n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`)
 
-// $.state starts over on /clear, /resume and /branch, so the /route choices live in $.store and load from both
-// session.start and classic.SessionStart. A Fable or Mythos lock loads as auto: it needs its two yeses again.
+// The /route choices live in $.store and load on session.start. A Fable or Mythos lock loads as auto: it needs its two yeses again.
 const load = async ($: Engine) => {
   const m = (await $.store.get('mode')) as Mode | undefined
   const o = (await $.store.get('effortOverride')) as Effort | null | undefined
@@ -110,11 +109,6 @@ export const register: Register = on => {
 
     return next(e)
   })
-
-  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
-    await load($)
-    return next(e)
-  }).catch(($, e, next) => next(e)) // a failed load never holds up the session
 
   on('command.run', { command: 'route' }, async ($, e) => {
     const yes = (question: string) =>

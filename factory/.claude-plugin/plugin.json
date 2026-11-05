@@ -1,0 +1,8 @@
+{
+  "name": "factory",
+  "version": "0.1.0",
+  "description": "A software factory for any git repo: /factory takes a one-line feature through spec, build on its own branch and worktree, parallel reviews and approval to a pull request, with a live dashboard",
+  "author": {
+    "name": "Dizzyobeah"
+  }
+}
