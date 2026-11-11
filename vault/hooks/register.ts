@@ -167,6 +167,31 @@ const buildDigest = async ($: Engine, vault: string, path: string, text: string)
 }
 
 
+// Copy a plan written to .claude/plans/*.md into <vault>/projects/<repo>/plans/ with vault frontmatter.
+// A source file keeps one destination (store, seeded from the old shell hook's .plan-map.json), so later edits update it.
+const syncPlan = async ($: Engine, vault: string, src: string) => {
+  if (!/\/\.claude\/plans\/[^/]+\.md$/.test(src) || !(await $.fs.exists(src))) return
+  const text = await $.fs.read(src)
+  const map = ((await $.store.get('planmap')) ?? {}) as Record<string, string>
+  let dest = map[src]
+  if (!dest) {
+    const old = JSON.parse((await $.fs.read(`${vault}/.plan-map.json`).catch(() => '')) || '{}') as Record<string, string>
+    dest = old[src]
+  }
+  const heading = /^#{1,2} *(?:Plan: )?(.+)$/m.exec(text.split('\n').slice(0, 30).join('\n'))?.[1]?.trim()
+  const { date } = stamp(new Date(await $.clock.now()))
+  const info = await infoOf($, await $.session.cwd())
+  if (!dest) {
+    const slug = heading
+      ? heading.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/ +/g, '-').slice(0, 50).replace(/-$/, '')
+      : base(src).replace(/\.md$/, '')
+    dest = `${vault}/projects/${info.repo}/plans/${date}-${slug}.md`
+    await $.store.set('planmap', Object.fromEntries(Object.entries({ ...map, [src]: dest }).slice(-200)))
+  }
+  const title = (heading ?? base(src).replace(/\.md$/, '')).replace(/"/g, "'")
+  await $.fs.write(dest, `---\ntitle: "${title}"\ntype: plan\ntags: [project/${info.repo}]\ncreated: ${date}\nupdated: ${date}\nstatus: draft\nrelated: []\n---\n\n${text.replace(/^#.*\n/, '')}\n`)
+}
+
 export const register: Register = (on, options) => {
   const vault = String(options.vault_path ?? '').replace(/\/+$/, '')
   const indexScript = String(options.index_script ?? '')
@@ -218,6 +243,15 @@ The vault plugin writes this note: it summarises the session into Log, Key Decis
     if (vault) await ensureNote($, vault).catch(() => {})
     return next(e)
   })
+
+  // Plan sync: after a Write or Edit of .claude/plans/*.md.
+  for (const tool of ['Write', 'Edit'] as const) {
+    on('tool.call', { tool }, async ($, e, next) => {
+      const res = await next(e)
+      if (vault) await syncPlan($, vault, e.file_path).catch(() => {})
+      return res
+    })
+  }
 
   // session.end shares a 1.5 s bound across all hooks, so it only archives the note and rolls decisions up. The summary is written on turn.complete.
   on('session.end', async ($, e, next) => {

@@ -1,6 +1,6 @@
 {
   "name": "vault",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Keeps an Obsidian vault: one note per session, auto-summarised into Log, Key Decisions and Open Questions on exit, rolled into the daily note, with prior vault context injected into the system prompt",
   "author": {
     "name": "Dizzyobeah"

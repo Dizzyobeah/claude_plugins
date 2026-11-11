@@ -53,4 +53,22 @@ describe('vault', () => {
     expect(note).not.toMatch(/none/)
     expect(files.get(`${V}/daily/2026-11-11.md`)).toMatch(/- chose X because Y \(\[\[2026-11-11-0930-app\]\]\)/)
   })
+
+  test('plan write is copied once, later edits update the same file', { ...OPTS }, async ($, on) => {
+    const files = host(on, REPLY)
+    on('tool.call', () => ({ result: 'ok' }) as never)
+    const src = '/work/app/.claude/plans/random-name.md'
+    files.set(src, '# Plan: Fix the Thing!\n\n## Context\nv1\n')
+    await $.tool.call({ tool: 'Write', file_path: src, content: 'x' } as never)
+    files.set(src, '# Plan: Fix the Thing!\n\n## Context\nv2\n')
+    await $.tool.call({ tool: 'Edit', file_path: src, old_string: 'v1', new_string: 'v2' } as never)
+    const plans = [...files.keys()].filter(k => k.startsWith(`${V}/projects/app/plans/`))
+    expect(plans).toEqual([`${V}/projects/app/plans/2026-11-11-fix-the-thing.md`])
+    const out = files.get(plans[0]) ?? ''
+    expect(out).toMatch(/title: "Fix the Thing!"/)
+    expect(out).toMatch(/v2/)
+    expect(out).not.toMatch(/^# Plan/m)
+    await $.tool.call({ tool: 'Write', file_path: '/work/app/notes.md', content: 'x' } as never)
+    expect([...files.keys()].filter(k => k.startsWith(`${V}/projects/`)).length).toBe(1)
+  })
 })
