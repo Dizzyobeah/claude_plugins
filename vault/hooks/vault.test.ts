@@ -22,6 +22,7 @@ const host = (on: On, reply: string, id = 's1') => {
   on('fs.write', ($, e) => { files.set(e.path, e.text); return { value: undefined } })
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('model.fork', () => ({ value: { isAnswered: true, text: reply, usage: {} } }))
+  on('turn.complete', (_, e) => ({ text: e.answer }))
   return files
 }
 
@@ -43,6 +44,7 @@ describe('vault', () => {
   test('end fills sections, archives, rolls decisions into daily', { ...OPTS }, async ($, on) => {
     const files = host(on, REPLY)
     await $.session.start({ cwd: '/work/app', surface: 'terminal', isInteractive: true })
+    await $.turn.complete({ reason: 'answer', answer: 'done' } as never)
     await $.session.end({ reason: 'other', sessionId: 's1', resume: { id: 's1' } } as never)
     const note = files.get(`${V}/sessions/2026-11-11-0930-app.md`) ?? ''
     expect(note).toMatch(/status: archived/)
