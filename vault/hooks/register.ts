@@ -33,7 +33,7 @@ const insertUnder = (text: string, heading: string, lines: string) => {
 // Replace the body of `## <heading>` with `body`, keeping whatever was already in it.
 const fillSection = (text: string, heading: string, body: string) => {
   const re = new RegExp(`(^## ${esc(heading)}[ \\t]*\\n)([\\s\\S]*?)(?=^## |(?![\\s\\S]))`, 'm')
-  return text.replace(re, (_, h, old) => `${h}${old.trim() ? `${old.trimEnd()}\n` : ''}${body}\n\n`)
+  return text.replace(re, (_, h) => `${h}${body}\n\n`)
 }
 
 const section = (text: string, heading: string) =>
@@ -212,13 +212,14 @@ The vault plugin writes this note: it summarises the session into Log, Key Decis
       if (hits.length) return next({ ...e, text: `${e.text}\n\n<vault-domain-context>\n${hits.join('\n\n')}\n</vault-domain-context>` })
     } catch {}
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('session.start', async ($, e, next) => {
     if (vault) await ensureNote($, vault).catch(() => {})
     return next(e)
   })
 
+  // session.end shares a 1.5 s bound across all hooks, so it only archives the note and rolls decisions up. The summary is written on turn.complete.
   on('session.end', async ($, e, next) => {
     if (!vault) return next(e)
     try {
@@ -227,14 +228,6 @@ The vault plugin writes this note: it summarises the session into Log, Key Decis
       if (!path || !(await $.fs.exists(path))) return next(e)
       let text = await $.fs.read(path)
       if (/^status: archived$/m.test(text)) return next(e)
-
-      const r = await $.model.fork({ prompt: SUMMARY_PROMPT, effort: 'low' }).catch(() => undefined)
-      if (r?.isAnswered) {
-        for (const h of ['Log', 'Key Decisions', 'Open Questions']) {
-          const body = section(r.text, h).trim()
-          if (body && !/^[-*]\s*none\s*$/i.test(body)) text = fillSection(text, h, body)
-        }
-      }
       text = text.replace(/^status: active$/m, 'status: archived')
       await $.fs.write(path, text)
 
@@ -247,7 +240,33 @@ The vault plugin writes this note: it summarises the session into Log, Key Decis
         if (ds.length) d = insertUnder(d, 'Key Decisions', ds.join('\n'))
         await $.fs.write(daily, d)
       }
-      const repo = noteMeta(text, 'repo')
+    } catch {}
+    return next(e)
+  })
+
+  // Summary every SUMMARY_EVERY main-thread turns (and the first): a low-cost fork over the session's cached transcript.
+  // ponytail: a turn after the last summary and before exit is only covered by the next summary; raise the frequency if that tail matters.
+  const SUMMARY_EVERY = 3
+  on('turn.complete', async ($, e, next) => {
+    if (!vault || e.agentId !== undefined) return next(e)
+    try {
+      const id = await $.session.id()
+      const turns = Number((await $.store.get(`turns:${id}`)) ?? 0) + 1
+      await $.store.set(`turns:${id}`, turns)
+      const notes = ((await $.store.get('notes')) ?? {}) as Record<string, string>
+      const path = notes[id]
+      if (turns % SUMMARY_EVERY !== 1 || !path || !(await $.fs.exists(path))) return next(e)
+
+      const r = await $.model.fork({ prompt: SUMMARY_PROMPT }).catch(() => undefined)
+      if (r?.isAnswered) {
+        let text = await $.fs.read(path)
+        for (const h of ['Log', 'Key Decisions', 'Open Questions']) {
+          const body = section(r.text, h).trim()
+          if (body && !/^[-*]\s*none\s*$/i.test(body)) text = fillSection(text, h, body)
+        }
+        await $.fs.write(path, text)
+      }
+      const repo = noteMeta(await $.fs.read(path), 'repo')
       if (indexScript && repo) await $.process.run([indexScript, repo], { timeoutMs: 20_000 }).catch(() => {})
     } catch {}
     return next(e)
