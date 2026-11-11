@@ -16,6 +16,11 @@
       "name": "usage-band",
       "source": "./usage-band",
       "description": "Session, daily and weekly usage in a Powerline band above the prompt, stacked with other bands, with /usage-band to turn it on, and click it or /usage-band pane for a live per-model and per-agent pane"
+    },
+    {
+      "name": "vault",
+      "source": "./vault",
+      "description": "Obsidian vault memory: one note per session (reused on resume), auto-summarised into Log, Key Decisions and Open Questions on exit, rolled into the daily note, with prior vault context injected into the system prompt. You give the vault path at install"
     }
   ]
 }

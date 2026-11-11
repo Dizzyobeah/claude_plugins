@@ -8,6 +8,7 @@ Claude Code plugins and mods by Dizzyobeah. Mods change Claude's own interface o
 | --- | --- | --- |
 | [model-router](./model-router) | mod | Classifies each prompt and routes it to Haiku, Sonnet or Opus, with `/route` to control it |
 | [usage-band](./usage-band) | mod | Session, daily and weekly usage in a band above the prompt; `/usage-band` turns it on (`off` hides it), click the band or `/usage-band pane` for a live per-model and per-agent pane. Works alongside model-router |
+| [vault](./vault) | mod | Keeps an Obsidian vault: one note per session, auto-summarised on exit, rolled into the daily note, prior context injected. Asks for your vault path at install |
 
 ## Install
 
@@ -17,6 +18,7 @@ Add the marketplace once, then install what you want:
 /plugin marketplace add Dizzyobeah/claude_plugins
 /plugin install model-router@dizzyobeah-plugins
 /plugin install usage-band@dizzyobeah-plugins
+/plugin install vault@dizzyobeah-plugins
 ```
 
 ### Desktop app

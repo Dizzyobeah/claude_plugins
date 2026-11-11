@@ -1,0 +1,22 @@
+{
+  "name": "vault",
+  "version": "0.1.0",
+  "description": "Keeps an Obsidian vault: one note per session, auto-summarised into Log, Key Decisions and Open Questions on exit, rolled into the daily note, with prior vault context injected into the system prompt",
+  "author": {
+    "name": "Dizzyobeah"
+  },
+  "userConfig": {
+    "vault_path": {
+      "type": "string",
+      "title": "Vault path",
+      "description": "Absolute path to your Obsidian vault folder (the one holding sessions/, daily/, knowledge/ and projects/). Created on first use if missing.",
+      "required": true
+    },
+    "index_script": {
+      "type": "string",
+      "title": "Index script (optional)",
+      "description": "Absolute path to a script run after each session as `<script> <repo>` to rebuild a per-repo index. Leave empty to skip.",
+      "default": ""
+    }
+  }
+}
